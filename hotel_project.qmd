@@ -639,18 +639,31 @@ target_summary["proportion"] = (
 
 display(target_summary)
 
+
 # Plot the distribution of the response variable
-plt.figure(figsize=(6, 4))
-plt.bar(["Not Canceled", "Canceled"], target_summary["proportion"])
+ax = target_summary["proportion"].plot(
+    kind="bar",
+    figsize=(7, 4),
+    xlabel="Booking Status",
+    ylabel="Proportion",
+    title="Distribution of Hotel Booking Cancellations",
+    rot=0
+)
 
-plt.ylabel("Proportion")
-plt.xlabel("Booking Status")
-plt.title("Distribution of Hotel Booking Cancellations")
-plt.ylim(0, 1)
+ax.set_xticks([0, 1], labels=["Not Canceled", "Canceled"])
+ax.yaxis.set_major_formatter(PercentFormatter(1))
+ax.set_ylim(0, 1)
 
+for i, proportion in enumerate(target_summary["proportion"]):
+    ax.text(
+        i,
+        proportion + 0.01,
+        f"{proportion:.2%}",
+        ha="center"
+    )
+
+plt.tight_layout()
 plt.show()
-
-
 
 ```
 
@@ -685,16 +698,29 @@ display(lead_time_summary)
 
 
 
-lead_time_summary["cancellation_rate"].plot(
+ax = lead_time_summary["cancellation_rate"].plot(
     kind="bar",
-    figsize=(8, 5),
+    figsize=(7, 4),
     xlabel="Lead Time (Days)",
     ylabel="Cancellation Rate",
     title="Cancellation Rate by Lead Time",
     rot=0
 )
 
-plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
+ax.yaxis.set_major_formatter(PercentFormatter(1))
+ax.set_ylim(0, 0.5)
+
+
+for i, rate in enumerate(lead_time_summary["cancellation_rate"]):
+    ax.text(
+        i,
+        rate + 0.01,
+        f"{rate:.2%}",
+        ha="center"
+    )
+
+
+
 plt.tight_layout()
 plt.show()
 
@@ -723,17 +749,28 @@ deposit_summary = (
 display(deposit_summary)
 
 # Plot cancellation rate by deposit type
-deposit_summary["cancellation_rate"].plot(
+ax = deposit_summary["cancellation_rate"].plot(
     kind="bar",
-    figsize=(7, 5),
+    figsize=(7, 4),
     xlabel="Deposit Type",
     ylabel="Cancellation Rate",
     title="Cancellation Rate by Deposit Type",
     rot=0
 )
 
-plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
-plt.ylim(0, 1)
+
+ax.yaxis.set_major_formatter(PercentFormatter(1))
+ax.set_ylim(0, 1)
+
+for i, rate in enumerate(deposit_summary["cancellation_rate"]):
+    ax.text(
+        i,
+        rate + 0.01,
+        f"{rate:.2%}",
+        ha="center"
+    )
+
+
 plt.tight_layout()
 plt.show()
 ```
@@ -768,17 +805,28 @@ previous_cancellation_summary = (
 display(previous_cancellation_summary)
 
 # Plot cancellation rate by previous cancellation history
-previous_cancellation_summary["cancellation_rate"].plot(
+ax = previous_cancellation_summary["cancellation_rate"].plot(
     kind="bar",
-    figsize=(7, 5),
+    figsize=(7, 4),
     xlabel="Number of Previous Cancellations",
     ylabel="Cancellation Rate",
     title="Cancellation Rate by Previous Cancellation History",
     rot=0
 )
 
-plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
-plt.ylim(0, 1)
+ax.yaxis.set_major_formatter(PercentFormatter(1))
+ax.set_ylim(0, 1)
+
+for i, rate in enumerate(previous_cancellation_summary["cancellation_rate"]):
+    ax.text(
+        i,
+        rate + 0.01,
+        f"{rate:.2%}",
+        ha="center"
+    )
+
+
+
 plt.tight_layout()
 plt.show()
 ```
@@ -812,17 +860,26 @@ previous_booking_summary = (
 display(previous_booking_summary)
 
 # Plot cancellation rate by previous booking history
-previous_booking_summary["cancellation_rate"].plot(
+ax = previous_booking_summary["cancellation_rate"].plot(
     kind="bar",
-    figsize=(7, 5),
+    figsize=(7, 4),
     xlabel="Previous Non-Canceled Bookings",
     ylabel="Cancellation Rate",
     title="Cancellation Rate by Previous Booking History",
     rot=0
 )
 
-plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
-plt.ylim(0, 1)
+ax.yaxis.set_major_formatter(PercentFormatter(1))
+ax.set_ylim(0, 0.4)
+for i, rate in enumerate(previous_booking_summary["cancellation_rate"]):
+    ax.text(
+        i,
+        rate + 0.01,
+        f"{rate:.2%}",
+        ha="center"
+    )
+
+
 plt.tight_layout()
 plt.show()
 ```
@@ -857,17 +914,28 @@ special_request_summary = (
 display(special_request_summary)
 
 # Plot cancellation rate by number of special requests
-special_request_summary["cancellation_rate"].plot(
+ax = special_request_summary["cancellation_rate"].plot(
     kind="bar",
-    figsize=(7, 5),
+    figsize=(7, 4),
     xlabel="Number of Special Requests",
     ylabel="Cancellation Rate",
     title="Cancellation Rate by Number of Special Requests",
     rot=0
 )
 
-plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
-plt.ylim(0, 0.4)
+ax.yaxis.set_major_formatter(PercentFormatter(1))
+ax.set_ylim(0, 0.4)
+
+for i, rate in enumerate(special_request_summary["cancellation_rate"]):
+    ax.text(
+        i,
+        rate + 0.01,
+        f"{rate:.2%}",
+        ha="center"
+    )
+
+
+
 plt.tight_layout()
 plt.show()
 
@@ -905,7 +973,7 @@ display(booking_change_summary)
 # Plot cancellation rate by number of booking changes
 ax = booking_change_summary["cancellation_rate"].plot(
     kind="bar",
-    figsize=(7, 5),
+    figsize=(7, 4),
     xlabel="Number of Booking Changes",
     ylabel="Cancellation Rate",
     title="Cancellation Rate by Number of Booking Changes",
@@ -919,7 +987,7 @@ for i, rate in enumerate(booking_change_summary["cancellation_rate"]):
     ax.text(
         i,
         rate + 0.01,
-        f"{rate:.1%}",
+        f"{rate:.2%}",
         ha="center"
     )
 
@@ -971,7 +1039,7 @@ ax.xaxis.set_major_formatter(PercentFormatter(1))
 ax.set_xlim(0, 0.4)
 
 for i, rate in enumerate(market_segment_plot["cancellation_rate"]):
-    ax.text(rate + 0.005, i, f"{rate:.1%}", va="center")
+    ax.text(rate + 0.005, i, f"{rate:.2%}", va="center")
 
 
 plt.tight_layout()
@@ -1016,7 +1084,7 @@ display(parking_summary)
 # Plot cancellation rate by parking-space requirement
 ax = parking_summary["cancellation_rate"].plot(
     kind="bar",
-    figsize=(6, 4),
+    figsize=(7, 4),
     xlabel="Requires Parking Space",
     ylabel="Cancellation Rate",
     title="Cancellation Rate by Parking-Space Requirement",
@@ -1026,7 +1094,7 @@ ax.yaxis.set_major_formatter(PercentFormatter(1))
 ax.set_ylim(0, 0.4)
 
 for i, rate in enumerate(parking_summary["cancellation_rate"]):
-    ax.text(i, rate + 0.01, f"{rate:.1%}", ha="center")
+    ax.text(i, rate + 0.01, f"{rate:.2%}", ha="center")
 
 plt.tight_layout()
 plt.show()
@@ -1078,15 +1146,18 @@ display(adr_summary)
 ax = train_df.boxplot(
     column="adr_adj",
     by="is_canceled",
-    figsize=(6, 4),
+    figsize=(7, 4),
     showfliers=False # Hide fliers
 )   
 
 
+
 plt.suptitle("")
-plt.title("ADR by Cancellation Status")
-plt.xlabel("Is Canceled (0 = No, 1 = Yes)")
-plt.ylabel("Average Daily Rate")
+ax.set_title("Adjusted ADR by Cancellation Status")
+ax.set_xlabel("Is Canceled (0 = No, 1 = Yes)")
+ax.set_ylabel("Adjusted Average Daily Rate")
+
+
 plt.tight_layout()
 plt.show()
 
@@ -1094,3 +1165,96 @@ plt.show()
 
 
 Canceled bookings had higher adjusted ADRs, with a median of $109.65 and a mean of $117.57, compared with $95.00 and $103.04 for non-canceled bookings. Although the distributions overlapped substantially, this upward shift suggests that `adr_adj` may provide useful predictive information. Outlier markers were omitted from the boxplot for readability, but all observations were retained in the analysis.
+
+
+
+###  Hotel Type
+
+
+```{python}
+# Summarize cancellation rates by hotel type
+hotel_summary = (
+    train_df.groupby("hotel")["is_canceled"]
+    .agg(
+        bookings="size",
+        cancellation_rate="mean"
+    )
+)
+
+display(hotel_summary)
+
+# Plot cancellation rate by hotel type
+ax = hotel_summary["cancellation_rate"].plot(
+    kind="bar",
+    figsize=(7, 4),
+    xlabel="Hotel Type",
+    ylabel="Cancellation Rate",
+    title="Cancellation Rate by Hotel Type",
+    rot=0
+)
+
+ax.yaxis.set_major_formatter(PercentFormatter(1))
+ax.set_ylim(0, 0.4)
+
+for i, rate in enumerate(hotel_summary["cancellation_rate"]):
+    ax.text(
+        i,
+        rate + 0.01,
+        f"{rate:.2%}",
+        ha="center"
+    )
+
+plt.tight_layout()
+plt.show()
+```
+
+City Hotel bookings had a cancellation rate of 30.16%, compared with 23.38% for Resort Hotel bookings。 Both hotels contributed substantial numbers of observations, with 42,669 City Hotel bookings and 27,112 Resort Hotel bookings in the training set. Although cancellation was more common at the City Hotel, this comparison does not account for differences in customer types, booking channels, or lead times. Further analysis will examine whether the relationship between lead time and cancellation differs across the two hotels.
+
+
+
+
+### Customer Type
+
+
+```{python}
+# Summarize cancellation rates by customer type
+customer_type_summary = (
+    train_df.groupby("customer_type")["is_canceled"]
+    .agg(
+        bookings="size",
+        cancellation_rate="mean"
+    )
+    .sort_values("cancellation_rate")
+)
+
+display(customer_type_summary)
+
+# Plot cancellation rate by customer type
+ax = customer_type_summary["cancellation_rate"].plot(
+    kind="bar",
+    figsize=(7, 4),
+    xlabel="Customer Type",
+    ylabel="Cancellation Rate",
+    title="Cancellation Rate by Customer Type",
+    rot=0
+)
+
+ax.yaxis.set_major_formatter(PercentFormatter(1))
+ax.set_ylim(0, 0.4)
+
+for i, rate in enumerate(customer_type_summary["cancellation_rate"]):
+    ax.text(
+        i,
+        rate + 0.01,
+        f"{rate:.2%}",
+        ha="center"
+    )
+
+plt.tight_layout()
+plt.show()
+```
+
+
+Cancellation rates varied across customer types. Transient bookings had the highest rate at 30.15%, compared with 16.45% for Contract and 15.21% for Transient-Party bookings. Group bookings had the lowest rate at 9.26%, but this category contained only 421 observations, so its estimate may be less stable. The main distinction was between Transient bookings and the other customer types, while Contract and Transient-Party bookings had similar rates.
+
+
