@@ -620,6 +620,8 @@ print(f"Test set: {len(X_test):,} observations")
 
 
 
+
+
 ## Response Variable
 
 ```{python}
@@ -727,7 +729,7 @@ plt.show()
 
 ```
 
-Cancellation rates increased steadily with lead time. Bookings made 0–7 days in advance had the lowest cancellation rate at 8.49%, compared with 25.33% for 8–30 days and 43.02% for more than 365 days. This clear positive relationship suggests that `lead_time` may be an important predictor of cancellation. However, the final interval contains only 444 bookings, so its estimated cancellation rate may be less stable.
+Cancellation rates increased steadily with lead time. Bookings made 0–7 days in advance had the lowest cancellation rate at 8.49%, compared with 25.33% for 8–30 days and 41.38% for more than 365 days. This clear positive relationship suggests that `lead_time` may be an important predictor of cancellation. However, the final interval contains only 464 bookings, so its estimated cancellation rate may be less stable.
 
 
 
@@ -1258,3 +1260,201 @@ plt.show()
 Cancellation rates varied across customer types. Transient bookings had the highest rate at 30.15%, compared with 16.45% for Contract and 15.21% for Transient-Party bookings. Group bookings had the lowest rate at 9.26%, but this category contained only 421 observations, so its estimate may be less stable. The main distinction was between Transient bookings and the other customer types, while Contract and Transient-Party bookings had similar rates.
 
 
+
+## Stratified Analysis
+
+
+
+
+```{python}
+# Group previous cancellations using the same categories as before
+previous_cancel_group = pd.cut(
+    train_df["previous_cancellations"],
+    bins=[-1, 0, 1, np.inf],
+    labels=["0", "1", "2+"]
+)
+
+# Separate bookings by whether there is any prior non-canceled booking
+previous_stay_group = pd.cut(
+    train_df["previous_bookings_not_canceled"],
+    bins=[-1, 0, np.inf],
+    labels=["No prior non-canceled bookings", "Has prior non-canceled bookings"]
+)
+
+# Summarize cancellation outcomes within each history combination
+history_summary = (
+    train_df.groupby(
+        [
+            previous_cancel_group.rename("previous_cancellations"),
+            previous_stay_group.rename("prior_booking_history")
+        ],
+        observed=True
+    )["is_canceled"]
+    .agg(
+        bookings="size",
+        cancellations="sum",
+        cancellation_rate="mean"
+    )
+)
+
+# Compare sample sizes
+display(
+    history_summary["bookings"]
+    .unstack("prior_booking_history")
+)
+
+# Compare cancellation rates (%)
+display(
+    (
+        history_summary["cancellation_rate"]
+        .unstack("prior_booking_history") * 100
+    ).round(2)
+)
+```
+
+
+
+The lower cancellation rate for guests with 2+ previous cancellations (26.72%) compared with guests with exactly one (76.49%) appears related to their non-canceled booking history. Guests in the 2+ group were considerably more likely to also have prior non-canceled bookings, suggesting many are repeat guests whose overall booking pattern signals reliability, offsetting the risk implied by their cancellation count alone. This reinforces the earlier finding that the presence of any prior non-canceled booking is strongly associated with lower cancellation risk.
+
+
+
+
+### Market Segment and Deposit Type Interaction
+
+```{python}
+# Booking counts by market segment and deposit type
+segment_deposit_counts = pd.crosstab(
+    train_df["market_segment"],
+    train_df["deposit_type"]
+)
+
+print("Booking counts")
+display(segment_deposit_counts)
+
+# Deposit-type composition within each market segment (%)
+segment_deposit_composition = pd.crosstab(
+    train_df["market_segment"],
+    train_df["deposit_type"],
+    normalize="index"
+) * 100
+
+print("Deposit-type composition within each market segment (%)")
+display(segment_deposit_composition.round(2))
+
+# Cancellation rates by market segment and deposit type (%)
+segment_deposit_cxlrate = pd.crosstab(
+    train_df["market_segment"],
+    train_df["deposit_type"],
+    values=train_df["is_canceled"],
+    aggfunc="mean"
+) * 100
+
+print("Cancellation rates (%)")
+display(segment_deposit_cxlrate.round(2))
+```
+
+
+One defining characteristic is that most Non Refund bookings are concentrated in Groups and Offline TA/TO, which account for 64.73% and 26.86% of this deposit category. The remaining bookings come from Corporate (5.68%), Online TA (1.78%), and Direct (0.95%). Within Groups segment, Non Refund bookings make up only 13.89% of bookings, yet have a cancellation rate of 96.16%, far above the 16.31% for No Deposit bookings. This small subset contributes nearly half of the segment’s total cancellations. Offline TA/TO has an even higher Non Refund cancellation rate of 98.68%, but these bookings represent just 2.05% of the segment. Most bookings are instead No Deposit, with a cancellation rate of 13.04%, so the segment’s overall rate remains comparatively low.
+
+
+
+
+
+
+## Correlation Analysis
+
+```{python}
+
+import seaborn as sns
+
+# Select numerical features, excluding IDs and nominal categories
+correlation_columns = [
+    "lead_time",
+    "adr_adj",
+    "total_nights_adj",
+    "adults",
+    "children",
+    "babies",
+    "previous_cancellations",
+    "previous_bookings_not_canceled",
+    "is_repeated_guest",
+    "total_of_special_requests",
+    "booking_changes",
+    "days_in_waiting_list"
+]
+
+# Calculate Spearman correlations using the training data only
+correlation_matrix = (
+    train_df[correlation_columns]
+    .corr(method="spearman")
+)
+
+# Hide the upper triangle because it repeats the lower triangle
+mask = np.triu(
+    np.ones_like(correlation_matrix, dtype=bool),   
+    k=0
+)
+
+# Plot the correlation matrix
+plt.figure(figsize=(11, 9))
+
+ax = sns.heatmap(
+    correlation_matrix,
+    mask=mask,
+    annot=True,
+    fmt=".2f",
+    annot_kws={"size": 9},
+    cmap="RdBu_r",
+    vmin=-1,
+    vmax=1,
+    center=0,
+    square=True,
+    linewidths=0.5,
+    cbar_kws={"label": "Spearman Correlation"}
+)
+
+ax.set_title("Spearman Correlations Among Numerical Features")
+plt.xticks(rotation=45, ha="right")
+plt.yticks(rotation=0)
+
+plt.tight_layout()
+plt.show()
+```
+
+
+Most numerical predictors show weak to moderate correlations, suggesting limited redundancy. The main exception is `previous_bookings_not_canceled` and `is_repeated_guest` (ρ = 0.80), since both reflect prior booking history. `lead_time` and `total_nights_adj` are moderately correlated (ρ = 0.45), but not strongly enough to justify removing either variable. We therefore retain these predictors initially and evaluate their usefulness during model validation.
+
+
+
+
+
+## EDA Summary
+
+
+
+The bivariate and stratified analyses reveal several patterns that will guide feature engineering and modeling:
+
+- Cancellation rates increase steadily with `lead_time`, making it an important predictor whose raw and transformed forms can be compared.
+
+- `deposit_type` should be considered together with `market_segment`, since Non Refund bookings are concentrated mainly in Groups and Offline TA/TO. An interaction term may be useful for logistic regression.
+
+- Several count variables, including `previous_bookings_not_canceled`, `total_of_special_requests`, and `booking_changes`, show most of their separation between zero and any. Binary versions will therefore be compared with their original counts.
+
+- The most surprising pattern was found in `previous_cancellations`: bookings with exactly one previous cancellation have a 76.49% cancellation rate, compared with 26.72% for those with two or more. This reversal is partly explained by the much larger proportion of prior non-canceled bookings in the latter group, so both history variables should be interpreted jointly.
+
+- Numerical predictors show limited redundancy overall. The main exception is `is_repeated_guest` and `previous_bookings_not_canceled` (ρ = 0.80), which will be reassessed during modeling rather than removed immediately.
+
+- Cancellations make up approximately 27% of the response. We will preserve this moderately imbalanced distribution through stratified resampling and evaluate performance with ROC AUC and confusion-matrix metrics rather than relying on accuracy alone.
+
+- The unusually strong separation associated with `required_car_parking_spaces` raises leakage concerns, so we will exclude it from the primary models. We will retain `booking_changes` only if the intended prediction setting includes information recorded after the initial reservation.
+
+
+These findings support targeted feature engineering while retaining potentially useful predictors for model validation.
+
+
+
+
+
+
+
+## Feature Engineering and Preprocessing
