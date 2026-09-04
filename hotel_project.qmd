@@ -1258,3 +1258,662 @@ plt.show()
 Cancellation rates varied across customer types. Transient bookings had the highest rate at 30.15%, compared with 16.45% for Contract and 15.21% for Transient-Party bookings. Group bookings had the lowest rate at 9.26%, but this category contained only 421 observations, so its estimate may be less stable. The main distinction was between Transient bookings and the other customer types, while Contract and Transient-Party bookings had similar rates.
 
 
+
+## Stratified Analysis
+
+
+
+
+```{python}
+# Group previous cancellations using the same categories as before
+previous_cancel_group = pd.cut(
+    train_df["previous_cancellations"],
+    bins=[-1, 0, 1, np.inf],
+    labels=["0", "1", "2+"]
+)
+
+# Separate bookings by whether there is any prior non-canceled booking
+previous_stay_group = pd.cut(
+    train_df["previous_bookings_not_canceled"],
+    bins=[-1, 0, np.inf],
+    labels=["No prior non-canceled bookings", "Has prior non-canceled bookings"]
+)
+
+# Summarize cancellation outcomes within each history combination
+history_summary = (
+    train_df.groupby(
+        [
+            previous_cancel_group.rename("previous_cancellations"),
+            previous_stay_group.rename("prior_booking_history")
+        ],
+        observed=True
+    )["is_canceled"]
+    .agg(
+        bookings="size",
+        cancellations="sum",
+        cancellation_rate="mean"
+    )
+)
+
+# Compare sample sizes
+display(
+    history_summary["bookings"]
+    .unstack("prior_booking_history")
+)
+
+# Compare cancellation rates (%)
+display(
+    (
+        history_summary["cancellation_rate"]
+        .unstack("prior_booking_history") * 100
+    ).round(2)
+)
+```
+
+
+
+The lower cancellation rate for guests with 2+ previous cancellations (26.72%) compared with guests with exactly one (76.49%) appears related to their non-canceled booking history. Guests in the 2+ group were considerably more likely to also have prior non-canceled bookings, suggesting many are repeat guests whose overall booking pattern signals reliability, offsetting the risk implied by their cancellation count alone. This reinforces the earlier finding that the presence of any prior non-canceled booking is strongly associated with lower cancellation risk.
+
+
+
+
+### Market Segment and Deposit Type Interaction
+
+```{python}
+# Booking counts by market segment and deposit type
+segment_deposit_counts = pd.crosstab(
+    train_df["market_segment"],
+    train_df["deposit_type"]
+)
+
+print("Booking counts")
+display(segment_deposit_counts)
+
+# Deposit-type composition within each market segment (%)
+segment_deposit_composition = pd.crosstab(
+    train_df["market_segment"],
+    train_df["deposit_type"],
+    normalize="index"
+) * 100
+
+print("Deposit-type composition within each market segment (%)")
+display(segment_deposit_composition.round(2))
+
+# Cancellation rates by market segment and deposit type (%)
+segment_deposit_cxlrate = pd.crosstab(
+    train_df["market_segment"],
+    train_df["deposit_type"],
+    values=train_df["is_canceled"],
+    aggfunc="mean"
+) * 100
+
+print("Cancellation rates (%)")
+display(segment_deposit_cxlrate.round(2))
+```
+
+
+One defining characteristic is that most Non Refund bookings are concentrated in Groups and Offline TA/TO, which account for 64.73% and 26.86% of this deposit category. The remaining bookings come from Corporate (5.68%), Online TA (1.78%), and Direct (0.95%). Within Groups segment, Non Refund bookings make up only 13.89% of bookings, yet have a cancellation rate of 96.16%, far above the 16.31% for No Deposit bookings. This small subset contributes nearly half of the segment's total cancellations. Offline TA/TO has an even higher Non Refund cancellation rate of 98.68%, but these bookings represent just 2.05% of the segment. Most bookings are instead No Deposit, with a cancellation rate of 13.04%, so the segment's overall rate remains comparatively low.
+
+
+
+
+
+
+## Correlation Analysis
+
+```{python}
+
+import seaborn as sns
+
+# Select numerical features, excluding IDs and nominal categories
+correlation_columns = [
+    "lead_time",
+    "adr_adj",
+    "total_nights_adj",
+    "adults",
+    "children",
+    "babies",
+    "previous_cancellations",
+    "previous_bookings_not_canceled",
+    "is_repeated_guest",
+    "total_of_special_requests",
+    "booking_changes",
+    "days_in_waiting_list"
+]
+
+# Calculate Spearman correlations using the training data only
+correlation_matrix = (
+    train_df[correlation_columns]
+    .corr(method="spearman")
+)
+
+# Hide the upper triangle because it repeats the lower triangle
+mask = np.triu(
+    np.ones_like(correlation_matrix, dtype=bool),
+    k=0
+)
+
+# Plot the correlation matrix
+plt.figure(figsize=(11, 9))
+
+ax = sns.heatmap(
+    correlation_matrix,
+    mask=mask,
+    annot=True,
+    fmt=".2f",
+    annot_kws={"size": 9},
+    cmap="RdBu_r",
+    vmin=-1,
+    vmax=1,
+    center=0,
+    square=True,
+    linewidths=0.5,
+    cbar_kws={"label": "Spearman Correlation"}
+)
+
+ax.set_title("Spearman Correlations Among Numerical Features")
+plt.xticks(rotation=45, ha="right")
+plt.yticks(rotation=0)
+
+plt.tight_layout()
+plt.show()
+```
+
+
+Most numerical predictors show weak to moderate correlations, suggesting limited redundancy. The main exception is `previous_bookings_not_canceled` and `is_repeated_guest` (ρ = 0.80), since both reflect prior booking history. `lead_time` and `total_nights_adj` are moderately correlated (ρ = 0.45), but not strongly enough to justify removing either variable. We therefore retain these predictors initially and evaluate their usefulness during model validation.
+
+
+
+
+
+## EDA Summary
+
+
+
+The bivariate and stratified analyses reveal several patterns that will guide feature engineering and modeling:
+
+- Cancellation rates increase steadily with `lead_time`, making it an important predictor whose raw and transformed forms can be compared.
+
+- `deposit_type` should be considered together with `market_segment`, since Non Refund bookings are concentrated mainly in Groups and Offline TA/TO. An interaction term may be useful for logistic regression.
+
+- Several count variables, including `previous_bookings_not_canceled`, `total_of_special_requests`, and `booking_changes`, show most of their separation between zero and any. Binary versions will therefore be compared with their original counts.
+
+- The most surprising pattern was found in `previous_cancellations`: bookings with exactly one previous cancellation have a 76.49% cancellation rate, compared with 26.72% for those with two or more. This reversal is partly explained by the much larger proportion of prior non-canceled bookings in the latter group, so both history variables should be interpreted jointly.
+
+- Numerical predictors show limited redundancy overall. The main exception is `is_repeated_guest` and `previous_bookings_not_canceled` (ρ = 0.80), which will be reassessed during modeling rather than removed immediately.
+
+- Cancellations make up approximately 27% of the response. We will preserve this moderately imbalanced distribution through stratified resampling and evaluate performance with ROC AUC and confusion-matrix metrics rather than relying on accuracy alone.
+
+- The unusually strong separation associated with `required_car_parking_spaces` raises leakage concerns, so we will exclude it from the primary models. We will retain `booking_changes` only if the intended prediction setting includes information recorded after the initial reservation.
+
+
+These findings support targeted feature engineering while retaining potentially useful predictors for model validation.
+
+
+
+
+# Feature Engineering and Preprocessing
+
+
+The exploratory analysis identified several patterns that the raw predictors do not express well: threshold effects in the count variables, a skewed lead time, a cyclical arrival month, a concentration of Non Refund bookings within particular market segments, and two high-cardinality identifiers. This section translates those findings into a fixed set of engineered features and a preprocessing pipeline.
+
+The work is separated into two stages so that no information from the test set influences the training procedure:
+
+1. **Row-wise feature engineering.** Deterministic transformations that depend only on values within the same booking (recodes, ratios, transformations, interactions). These can be applied independently to the training and test sets because they estimate nothing from the data.
+
+2. **Fitted preprocessing.** Steps that learn parameters from data (median imputation, standardization, and the frequency thresholds used to pool rare categories). These are wrapped in a `ColumnTransformer` that is fit on the training set only and applied unchanged to the test set.
+
+The planned transformations are summarized below.
+
+| Step | Variables | Decision |
+|------|-----------|----------|
+| Exclusions | `required_car_parking_spaces`, `assigned_room_type`, `booking_changes` | Removed as post-booking information (see below) |
+| Redundancy | `adr`, `stays_in_weekend_nights`, `stays_in_week_nights`, `arrival_date_week_number`, `arrival_date_month`, `lead_time` | Removed in favor of adjusted or transformed versions |
+| Transformation | `lead_time` | `log_lead_time = log(1 + lead_time)` to reduce right skew |
+| Cyclical encoding | `arrival_date_month` | `arrival_month_sin`, `arrival_month_cos` |
+| Ratio | stay composition | `weekend_night_ratio` alongside `total_nights_adj` |
+| Threshold recodes | `previous_bookings_not_canceled`, `total_of_special_requests`, `children`/`babies` | `has_prior_non_canceled_booking`, `has_special_request`, `is_family_booking` |
+| Bucketing | `previous_cancellations` | `previous_cancellations_bucket` with levels 0, 1, and 2+ |
+| Interaction | `deposit_type` × `market_segment` | `deposit_market_interaction` as a combined category |
+| Imputation | `children`, `adr_adj`, `total_nights_adj`, `weekend_night_ratio` | Median learned from the training set |
+| Rare categories | all nominal predictors | Levels below 0.5% of training rows pooled into an infrequent category |
+| Encoding | all nominal predictors | One-hot encoding |
+| Scaling | all numerical predictors | Standardization |
+
+
+## Prediction-Time Boundary
+
+
+The intended prediction point is the moment a booking is made, so a predictor is eligible only if its value is known at that time. Three variables fail this requirement to varying degrees.
+
+`required_car_parking_spaces` showed complete separation in the exploratory analysis: none of the 5,867 training bookings requesting a parking space were canceled. The dataset documentation indicates that this field can reflect the booking change log up to the day before arrival, which makes the separation a symptom of outcome-dependent information rather than a genuine booking-time signal. It is excluded.
+
+`assigned_room_type` records the room a guest actually received, which is determined at or after check-in and is therefore unavailable for a booking that has not yet resolved. Only `reserved_room_type`, which is fixed at the time of booking, is retained.
+
+`booking_changes` counts modifications made after the initial reservation, so its value grows during the window we are trying to predict over. It is excluded from the primary feature set for consistency with the two decisions above, but the exclusion is controlled by a single flag so that the modeling section can quantify what it costs. Setting `INCLUDE_POST_BOOKING_FEATURES = True` reinstates the variable and its binary recode, which allows a like-for-like comparison under a later prediction point (for example, forecasting cancellations for bookings already on the books).
+
+
+```{python}
+# Prediction point: information available at the time of booking.
+# Set to True to model a later prediction point that also uses
+# modifications recorded after the initial reservation.
+INCLUDE_POST_BOOKING_FEATURES = False
+
+# Variables that are unavailable, or only partially available,
+# at the time of booking
+POST_BOOKING_COLUMNS = [
+    "required_car_parking_spaces",
+    "assigned_room_type",
+    "booking_changes"
+]
+
+# Variables superseded by adjusted or transformed versions
+REDUNDANT_COLUMNS = [
+    "adr",                       # replaced by adr_adj
+    "stays_in_weekend_nights",   # replaced by total_nights_adj + weekend_night_ratio
+    "stays_in_week_nights",
+    "arrival_date_week_number",  # near-duplicate of arrival month
+    "arrival_date_month",        # replaced by the cyclical encoding
+    "lead_time"                  # replaced by log_lead_time
+]
+
+print(f"Excluded as post-booking information: {POST_BOOKING_COLUMNS}")
+print(f"Excluded as redundant: {REDUNDANT_COLUMNS}")
+```
+
+
+## Engineered Features
+
+
+Each engineered feature addresses a specific pattern observed during the exploratory analysis.
+
+`log_lead_time` compresses the long right tail of lead time so that linear models are not dominated by a small number of very distant bookings. The transformation is monotonic, so tree-based models are unaffected by it, and the raw variable is dropped to avoid carrying two rank-identical predictors.
+
+`arrival_month_sin` and `arrival_month_cos` encode the arrival month on a circle so that December and January are adjacent, which twelve separate indicator columns would not capture. `arrival_date_week_number` is dropped because it duplicates the same seasonal signal at a much higher cardinality.
+
+`weekend_night_ratio` records the share of nights falling on a weekend. Together with `total_nights_adj` it retains the information in the two raw night counts while distinguishing short weekend stays from weekday business stays of the same length. Because `total_nights_adj` is missing exactly for the zero-night bookings flagged during cleaning, the ratio is missing for the same bookings and is imputed with them.
+
+`has_prior_non_canceled_booking`, `has_special_request`, and `previous_cancellations_bucket` encode the threshold and non-monotonic patterns found earlier. The original counts are kept alongside them: an indicator is a non-linear function of its count, so the pair lets a linear model fit a jump at zero and a slope above zero simultaneously, while tree-based models can ignore whichever version is less useful.
+
+`is_family_booking` marks bookings that include at least one child or baby. A simple total-guest count was deliberately not used, because it is the exact sum of `adults`, `children`, and `babies` and would make the design matrix rank deficient.
+
+`deposit_market_interaction` combines deposit type and market segment into a single category. The stratified analysis showed that Non Refund bookings are concentrated in Groups and Offline TA/TO and cancel at above 96% there, a pattern that additive main effects cannot represent. Tree-based models can discover such interactions on their own, so this column is added only to the recipe intended for the linear models.
+
+
+```{python}
+# Month names map to positions on a circle so that December and
+# January are treated as adjacent
+MONTH_TO_NUMBER = {
+    "January": 1, "February": 2, "March": 3, "April": 4,
+    "May": 5, "June": 6, "July": 7, "August": 8,
+    "September": 9, "October": 10, "November": 11, "December": 12
+}
+
+
+def engineer_features(df, include_post_booking=None):
+    """Apply row-wise feature engineering to a booking-level data frame.
+
+    Every transformation depends only on values within the same row, so the
+    function can be applied to the training and test sets independently
+    without leaking information between them.
+    """
+    if include_post_booking is None:
+        include_post_booking = INCLUDE_POST_BOOKING_FEATURES
+
+    df = df.copy()
+
+    # Lead time: reduce right skew for the linear models
+    df["log_lead_time"] = np.log1p(df["lead_time"])
+
+    # Arrival month: cyclical encoding of seasonality
+    month_number = df["arrival_date_month"].map(MONTH_TO_NUMBER)
+    df["arrival_month_sin"] = np.sin(2 * np.pi * month_number / 12)
+    df["arrival_month_cos"] = np.cos(2 * np.pi * month_number / 12)
+
+    # Stay composition: share of nights falling on a weekend.
+    # total_nights_adj is missing for the flagged zero-night bookings,
+    # so the ratio is missing for exactly those rows.
+    df["weekend_night_ratio"] = (
+        df["stays_in_weekend_nights"] / df["total_nights_adj"]
+    )
+
+    # Threshold recodes for the count variables
+    df["has_prior_non_canceled_booking"] = (
+        df["previous_bookings_not_canceled"] > 0
+    ).astype(int)
+
+    df["has_special_request"] = (
+        df["total_of_special_requests"] > 0
+    ).astype(int)
+
+    df["is_family_booking"] = (
+        (df["children"].fillna(0) > 0) | (df["babies"] > 0)
+    ).astype(int)
+
+    # Non-monotonic cancellation history
+    df["previous_cancellations_bucket"] = pd.cut(
+        df["previous_cancellations"],
+        bins=[-1, 0, 1, np.inf],
+        labels=["0", "1", "2+"]
+    ).astype(str)
+
+    # Deposit type by market segment interaction
+    df["deposit_market_interaction"] = (
+        df["deposit_type"].astype(str)
+        + " | "
+        + df["market_segment"].astype(str)
+    )
+
+    # Types expected by the encoder: arrival year has three levels and is
+    # treated as nominal, and the identifier columns use pandas string dtype
+    df["arrival_date_year"] = df["arrival_date_year"].astype(str)
+    df["agent"] = df["agent"].astype(str)
+    df["country"] = df["country"].astype(str)
+    df["questionable_stay_data"] = df["questionable_stay_data"].astype(int)
+
+    drop_columns = REDUNDANT_COLUMNS + POST_BOOKING_COLUMNS
+
+    if include_post_booking:
+        df["has_booking_change"] = (df["booking_changes"] > 0).astype(int)
+        drop_columns = [
+            column for column in drop_columns
+            if column != "booking_changes"
+        ]
+
+    return df.drop(columns=drop_columns)
+
+
+X_train_fe = engineer_features(X_train)
+X_test_fe = engineer_features(X_test)
+
+print(f"Predictors before engineering: {X_train.shape[1]}")
+print(f"Predictors after engineering: {X_train_fe.shape[1]}")
+
+display(
+    X_train_fe[
+        [
+            "log_lead_time",
+            "arrival_month_sin",
+            "arrival_month_cos",
+            "weekend_night_ratio",
+            "has_prior_non_canceled_booking",
+            "has_special_request",
+            "is_family_booking",
+            "previous_cancellations_bucket",
+            "deposit_market_interaction"
+        ]
+    ].head()
+)
+```
+
+
+```{python}
+# Confirm that the engineered features behave as intended
+engineered_audit = pd.DataFrame({
+    "missing_n": X_train_fe.isna().sum(),
+    "unique_n": X_train_fe.nunique(),
+    "dtype": X_train_fe.dtypes.astype(str)
+})
+
+display(
+    engineered_audit[engineered_audit["missing_n"] > 0]
+    .sort_values("missing_n", ascending=False)
+)
+
+# The engineered training and test sets must share the same columns
+print(f"Column sets identical: {list(X_train_fe.columns) == list(X_test_fe.columns)}")
+```
+
+
+Only the four variables identified during cleaning still contain missing values: `children` (four bookings), `adr_adj` and `total_nights_adj` (the flagged zero-night and invalid-rate bookings), and the derived `weekend_night_ratio`, which inherits its missing values from `total_nights_adj`. All four are numerical and are imputed inside the pipeline. The categorical predictors contain no missing values because `agent` and `country` received explicit `No Agent` and `Unknown Country` labels during cleaning, so no categorical imputation step is required.
+
+
+## Feature Roles
+
+
+Predictors are separated into a numerical block and a nominal block, since the two require different treatment. Two predictors deserve comment. `is_repeated_guest` and `previous_bookings_not_canceled` had a Spearman correlation of 0.80, and both are retained here rather than removed, with the redundancy examined after encoding and left for the regularized models to resolve. `agent` and `country` are high-cardinality identifiers, retained as categorical predictors because the exploratory analysis showed that booking source is informative, but subject to the rare-category pooling described in the next subsection.
+
+
+```{python}
+NUMERIC_FEATURES = [
+    # Guest composition
+    "adults",
+    "children",
+    "babies",
+    "is_family_booking",
+    # Stay and price
+    "adr_adj",
+    "total_nights_adj",
+    "weekend_night_ratio",
+    # Timing
+    "log_lead_time",
+    "arrival_month_sin",
+    "arrival_month_cos",
+    "arrival_date_day_of_month",
+    "days_in_waiting_list",
+    # Guest history
+    "is_repeated_guest",
+    "previous_cancellations",
+    "previous_bookings_not_canceled",
+    "has_prior_non_canceled_booking",
+    # Booking attributes
+    "total_of_special_requests",
+    "has_special_request",
+    "has_company",
+    "questionable_stay_data"
+]
+
+CATEGORICAL_FEATURES = [
+    "hotel",
+    "arrival_date_year",
+    "meal",
+    "country",
+    "market_segment",
+    "distribution_channel",
+    "reserved_room_type",
+    "deposit_type",
+    "customer_type",
+    "agent",
+    "previous_cancellations_bucket"
+]
+
+if INCLUDE_POST_BOOKING_FEATURES:
+    NUMERIC_FEATURES += ["booking_changes", "has_booking_change"]
+
+# The interaction column is used only by the recipe built for the
+# linear models; tree-based models can recover interactions on their own
+INTERACTION_FEATURES = ["deposit_market_interaction"]
+
+print(f"Numerical predictors: {len(NUMERIC_FEATURES)}")
+print(f"Categorical predictors: {len(CATEGORICAL_FEATURES)}")
+
+# Every listed predictor must exist, and nothing may be silently left out
+assigned = set(NUMERIC_FEATURES + CATEGORICAL_FEATURES + INTERACTION_FEATURES)
+available = set(X_train_fe.columns)
+
+print(f"Listed but missing from the data: {sorted(assigned - available)}")
+print(f"Available but unassigned: {sorted(available - assigned)}")
+```
+
+
+## Rare Categories and Encoding
+
+
+The nominal predictors include several very sparse levels. `agent` contains hundreds of distinct identifiers, `country` contains well over a hundred, and even the low-cardinality variables have thin levels such as the two `Undefined` market-segment bookings that produced a 100% cancellation rate on no meaningful evidence. Encoding these directly would create hundreds of columns that are almost entirely zero, each supported by a handful of observations, which invites overfitting and produces unstable coefficients.
+
+Rather than pooling each variable by hand, the encoder applies one rule to every nominal predictor: any level appearing in fewer than 0.5% of training rows is merged into a single infrequent category. The threshold is learned on the training set alone, so a level that is common in training but rare in the test set is treated consistently in both. The same mechanism handles levels that appear only in the test set, which is essential for `agent` and `country`, where unseen identifiers are expected.
+
+Numerical predictors are standardized. Logistic regression with regularization, and any distance-based model considered later, require comparable scales; tree-based models are unaffected, so a single shared pipeline is sufficient.
+
+
+```{python}
+# Requires scikit-learn >= 1.2 for min_frequency, sparse_output and set_output
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+# Levels below this share of training rows are pooled together
+RARE_LEVEL_THRESHOLD = 0.005
+
+
+def build_preprocessor(categorical_features):
+    """Build a preprocessing pipeline for the given categorical block.
+
+    Numerical predictors are median imputed and standardized. Nominal
+    predictors are one-hot encoded after rare levels are pooled. All
+    parameters are learned from the training set only.
+    """
+    numeric_pipeline = Pipeline(steps=[
+        ("impute", SimpleImputer(strategy="median")),
+        ("scale", StandardScaler())
+    ])
+
+    categorical_pipeline = Pipeline(steps=[
+        ("encode", OneHotEncoder(
+            min_frequency=RARE_LEVEL_THRESHOLD,
+            handle_unknown="infrequent_if_exist",
+            sparse_output=False
+        ))
+    ])
+
+    return ColumnTransformer(
+        transformers=[
+            ("numeric", numeric_pipeline, NUMERIC_FEATURES),
+            ("categorical", categorical_pipeline, categorical_features)
+        ],
+        remainder="drop",
+        verbose_feature_names_out=False
+    ).set_output(transform="pandas")
+
+
+# Base recipe used by all models
+preprocessor = build_preprocessor(CATEGORICAL_FEATURES)
+
+# Recipe used by the linear models, which adds the segment-deposit interaction
+preprocessor_interaction = build_preprocessor(
+    CATEGORICAL_FEATURES + INTERACTION_FEATURES
+)
+
+X_train_processed = preprocessor.fit_transform(X_train_fe)
+X_test_processed = preprocessor.transform(X_test_fe)
+
+print(f"Processed training matrix: {X_train_processed.shape}")
+print(f"Processed test matrix: {X_test_processed.shape}")
+print(f"Missing values remaining: {X_train_processed.isna().sum().sum()}")
+```
+
+
+```{python}
+# Show how many levels each nominal predictor contributed after pooling
+encoder = preprocessor.named_transformers_["categorical"].named_steps["encode"]
+
+pooled_levels = [
+    0 if pooled is None else len(pooled)
+    for pooled in encoder.infrequent_categories_
+]
+
+encoding_summary = pd.DataFrame(
+    {
+        "levels_in_training": [
+            len(levels) for levels in encoder.categories_
+        ],
+        "levels_pooled": pooled_levels
+    },
+    index=CATEGORICAL_FEATURES
+)
+
+# Pooled levels collapse into one shared column per predictor
+encoding_summary["encoded_columns"] = (
+    encoding_summary["levels_in_training"]
+    - encoding_summary["levels_pooled"]
+    + (encoding_summary["levels_pooled"] > 0).astype(int)
+)
+
+display(encoding_summary.sort_values("levels_pooled", ascending=False))
+```
+
+
+Pooling has its largest effect on `agent` and `country`, which is the intended outcome: the frequent identifiers keep their own indicator columns, while the long tail of identifiers with only a few bookings each is represented by a single infrequent column per variable. The resulting design matrix is small enough to fit efficiently while retaining the booking-source signal observed during the exploratory analysis.
+
+
+## Multicollinearity After Encoding
+
+
+The correlation analysis flagged `is_repeated_guest` and `previous_bookings_not_canceled` as the one clearly redundant pair. Variance inflation factors are computed on the standardized numerical block to check whether that redundancy, or any redundancy introduced by the engineered features, is severe enough to warrant dropping a predictor.
+
+
+```{python}
+from sklearn.linear_model import LinearRegression
+
+def variance_inflation_factors(df):
+    """Return the VIF of each column, regressing it on all the others."""
+    factors = {}
+
+    for column in df.columns:
+        others = df.drop(columns=column)
+        r_squared = LinearRegression().fit(others, df[column]).score(
+            others, df[column]
+        )
+        factors[column] = np.inf if r_squared >= 1 else 1 / (1 - r_squared)
+
+    return pd.Series(factors, name="VIF").sort_values(ascending=False)
+
+
+vif = variance_inflation_factors(X_train_processed[NUMERIC_FEATURES])
+
+display(vif.to_frame().round(2))
+```
+
+
+Two sources of inflation are expected by construction. The count-and-indicator pairs, `total_of_special_requests` with `has_special_request` and `previous_bookings_not_canceled` with `has_prior_non_canceled_booking`, are correlated because one is derived from the other, and `is_repeated_guest` overlaps with the same booking history. Inflation among these predictors is accepted rather than corrected: the pairs encode the threshold effects found during the exploratory analysis, and every model considered later is either regularized or invariant to correlated inputs. All of them are retained, and the lasso penalty in the regularized logistic model will indicate which can be dropped without a loss in cross-validated performance. A large inflation factor on any predictor outside these known groups would instead signal an unintended dependency created during feature engineering and is worth resolving before modeling.
+
+
+## Prepared Data
+
+
+The engineered data sets and the unfitted pipelines are the inputs to the modeling section. The pipelines are deliberately saved before fitting so that they can be placed inside a cross-validation loop, where imputation, standardization, and rare-level pooling are refit on each training fold. Fitting them once on the full training set, as done above for inspection, would let information from the validation folds influence the folds' preprocessing and produce optimistic estimates.
+
+
+```{python}
+import joblib
+
+processed_dir = Path("data/processed")
+processed_dir.mkdir(parents=True, exist_ok=True)
+
+# Unfitted recipes, to be fit inside the resampling loop
+joblib.dump(
+    {
+        "preprocessor": build_preprocessor(CATEGORICAL_FEATURES),
+        "preprocessor_interaction": build_preprocessor(
+            CATEGORICAL_FEATURES + INTERACTION_FEATURES
+        ),
+        "numeric_features": NUMERIC_FEATURES,
+        "categorical_features": CATEGORICAL_FEATURES,
+        "interaction_features": INTERACTION_FEATURES
+    },
+    processed_dir / "preprocessing.joblib"
+)
+
+# Engineered, pre-encoding data sets
+X_train_fe.to_pickle(processed_dir / "X_train_fe.pkl")
+X_test_fe.to_pickle(processed_dir / "X_test_fe.pkl")
+y_train.to_pickle(processed_dir / "y_train.pkl")
+y_test.to_pickle(processed_dir / "y_test.pkl")
+
+print(f"Training observations: {len(X_train_fe):,}")
+print(f"Test observations: {len(X_test_fe):,}")
+print(f"Encoded predictors: {X_train_processed.shape[1]}")
+print(f"Training cancellation rate: {y_train.mean():.2%}")
+print(f"Test cancellation rate: {y_test.mean():.2%}")
+```
+
+
+## Feature Engineering Summary
+
+
+The 32 cleaned predictors were reduced to an engineered set of 20 numerical and 11 nominal predictors, plus one interaction column used only by the linear recipe, which expands to the encoded design matrix used for modeling. Three variables were excluded because their values are not known when a booking is made, six were replaced by adjusted or transformed versions, and nine were added to express the threshold, cyclical, and interaction patterns identified during the exploratory analysis.
+
+Every step that learns from data is contained in the saved pipelines rather than applied to the data in advance, so the modeling section can refit them within each resampling fold. The next section fits and tunes the candidate models on this feature set, using stratified cross-validation and ROC AUC as the primary comparison metric.
+
+

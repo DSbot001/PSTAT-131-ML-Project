@@ -1,0 +1,8 @@
+# Generated during rendering
+data/processed/
+hotel_project_files/
+hotel_project.html
+.quarto/
+.jupyter_cache/
+.ipynb_checkpoints/
+__pycache__/
