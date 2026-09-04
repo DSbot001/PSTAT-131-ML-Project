@@ -1458,3 +1458,67 @@ These findings support targeted feature engineering while retaining potentially 
 
 
 ## Feature Engineering and Preprocessing
+
+
+
+
+```{python}
+from src.feature_engineering import (
+    engineer_features,
+    validate_engineered_features
+)
+
+# Apply deterministic feature engineering
+X_train_fe = engineer_features(X_train)
+X_test_fe = engineer_features(X_test)
+
+# Run structural checks
+validate_engineered_features(
+    original=X_train,
+    engineered=X_train_fe
+)
+
+validate_engineered_features(
+    original=X_test,
+    engineered=X_test_fe
+)
+
+assert X_train_fe.columns.equals(X_test_fe.columns)
+
+print("Feature engineering checks passed.")
+print(f"Original predictors: {X_train.shape[1]}")
+print(f"Available predictors after engineering: {X_train_fe.shape[1]}")
+
+
+
+```
+
+
+
+
+Feature engineering is deliberately additive. The function in
+src/feature_engineering.py creates new columns from within-row information
+only and removes nothing except direct outcome leakage, so a single
+transformed frame serves the primary booking-time model, the model-specific
+pipelines, and the later sensitivity analyses. Deciding which representation
+each model sees is the responsibility of the column lists in
+src/preprocessing.py, not of the transformation step. This separation
+matters because several of the transformations are reshapings rather than
+additions: log_lead_time is a strictly monotone function of lead_time and
+therefore induces identical splits in a tree, and the cyclical month encoding
+addresses a constraint that linear models have and trees do not. Substituting
+them globally would settle by assumption what cross-validation should settle
+by evidence.
+
+Four features are treated as confirmed. has_prior_non_canceled_booking and
+has_special_request encode the zero-versus-any thresholds found in the
+exploratory analysis; previous_cancellations_bucket reflects a relationship
+that reversed above one prior cancellation; and is_family_booking marks
+bookings including a child or baby. A total-guest count was deliberately not
+created, since it is the exact sum of adults, children and babies. The
+deposit–market pattern enters as two targeted cell indicators rather than a
+full crossing of the two variables: a cell indicator is not a linear
+combination of the main effects, so it can coexist with complete one-hot
+dummies without inducing rank deficiency, and it avoids creating a
+high-cardinality combined category whose smallest cells would be pooled away
+by the very rare-category handling meant to protect them.
