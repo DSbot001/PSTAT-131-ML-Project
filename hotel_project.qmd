@@ -1468,6 +1468,9 @@ from src.feature_engineering import (
     validate_engineered_features
 )
 
+from src.preprocessing import HIGH_CARDINALITY_COLUMNS
+
+
 # Apply deterministic feature engineering
 X_train_fe = engineer_features(X_train)
 X_test_fe = engineer_features(X_test)
@@ -1488,6 +1491,23 @@ assert X_train_fe.columns.equals(X_test_fe.columns)
 print("Feature engineering checks passed.")
 print(f"Original predictors: {X_train.shape[1]}")
 print(f"Available predictors after engineering: {X_train_fe.shape[1]}")
+
+
+
+for threshold in [0.001, 0.002, 0.005]:
+    print(f"\nThreshold: {threshold:.3%}")
+
+    for column in HIGH_CARDINALITY_COLUMNS:
+        counts = X_train_fe[column].value_counts()
+        minimum_count = threshold * len(X_train_fe)
+
+        frequent_levels = counts[counts >= minimum_count]
+        pooled_count = counts[counts < minimum_count].sum()
+
+        print(
+            f"{column}: {len(frequent_levels)} retained levels, "
+            f"{pooled_count / len(X_train_fe):.2%} of rows pooled"
+        )
 
 
 
