@@ -17,26 +17,35 @@ jupyter: python3
 
 
 ```{python}
+
+# Import libraries for data analysis and visualization
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
 
+
+# Import utilities for file paths, model storage, and module reloading
 from pathlib import Path
 from joblib import dump, load
+import importlib
 
+# Table display setting during interactive analysis
 pd.set_option("display.max_columns", None)
 pd.set_option("display.max_rows", 100)
 
+# Set the random state for data splitting and model fitting
 RANDOM_STATE = 20240504
 
 
-
-
+# Save fitted models
 MODEL_DIR = Path("saved_models")
 MODEL_DIR.mkdir(exist_ok=True)
 
-RETRAIN_MODELS = False  # Set to True to retrain models; False to load saved models
+
+
+RETRAIN_MODELS = False  
+
 ```
 
 
@@ -45,55 +54,78 @@ RETRAIN_MODELS = False  # Set to True to retrain models; False to load saved mod
 
 ## Data Overview 
 
+The dataset was obtained from the [Hotel Booking Demand](https://www.kaggle.com/datasets/jessemostipak/hotel-booking-demand) dataset on Kaggle. It was originally collected and published in an article by António, de Almeida, and Nunes (2019). Each observation represents a booking scheduled to arrive between July 2015 and August 2017, including both completed and canceled bookings
+
+
 
 ```{python}
 
-# Define the path
+# Load the original hotel booking data
 data_path = Path("data/hotel_bookings.csv")
-
-
 # Load the CSV file
 hotel = pd.read_csv(data_path)
 
+# Store dataset dimensions and data types
+data_overview = pd.DataFrame({
+    "Observations": [hotel.shape[0]],
+    "Variables": [hotel.shape[1]],
+    "Numeric columns": [hotel.select_dtypes(include="number").shape[1]],
+    "Non-numeric columns": [hotel.select_dtypes(exclude="number").shape[1]],
+    "Response": ["is_canceled"],
+})
 
-hotel.head()
-
-# Display the dimensions of the dataset
-print(f"Rows: {hotel.shape[0]:,}")
-print(f"Columns: {hotel.shape[1]}")
-
-
-hotel.info()
+# Display a compact overview without the index
+display(
+    data_overview.style
+    .format({
+        "Observations": "{:,}",
+        "Variables": "{:,}",
+        "Numeric columns": "{:,}",
+        "Non-numeric columns": "{:,}",
+    })
+    .hide(axis="index")
+)
 
 ```
 
-The original dataset contains 119,390 observations and 32 variables, including both numerical and categorical predictors. 
+
+The original dataset contains 119,390 observations and 32 variables, including 20 numeric and 12 non-numeric candidates. The binary response variable, is_canceled, indicates whether a booking was canceled. The other variables provide information about booking characteristics, customer history, stay details, and reservation channels. 
 
 ## Data Cleaning
-
-
-
-
-
 
 ### Duplicate Observations
 
 
 ```{python}
+# Count exact duplicate observations
+n_original = len(hotel)
 n_duplicates = hotel.duplicated().sum()
-duplicate_pct = hotel.duplicated().mean()
+duplicate_pct = n_duplicates / n_original
 
-print(f"Exact duplicate rows: {n_duplicates:,}")  # number of duplicate rows
-print(f"Percentage duplicated: {duplicate_pct:.2%}") # proportion of duplicate rows
-
-# Remove exact duplicate observations while keeping the first occurrence
+# Remove duplicates 
 hotel_clean = hotel.drop_duplicates().copy()
 
-# Verify the dimensions and remaining duplicate count
-print(f"Original observations: {len(hotel):,}")
-print(f"Observations after removing duplicates: {len(hotel_clean):,}")
-print(f"Observations removed: {len(hotel) - len(hotel_clean):,}")
-print(f"Remaining exact duplicates: {hotel_clean.duplicated().sum():,}")
+# Verify that no exact duplicates remain
+assert hotel_clean.duplicated().sum() == 0
+
+# Summarize the duplicate-removal results
+duplicate_summary = pd.DataFrame({
+    "Original observations": [n_original],
+    "Exact duplicates removed": [n_duplicates],
+    "Percentage removed": [duplicate_pct],
+    "Remaining observations": [len(hotel_clean)],
+})
+
+display(
+    duplicate_summary.style
+    .format({
+        "Original observations": "{:,}",
+        "Exact duplicates removed": "{:,}",
+        "Percentage removed": "{:.2%}",
+        "Remaining observations": "{:,}",
+    })
+    .hide(axis="index")
+)
 ```
 
 
@@ -108,30 +140,41 @@ A total of 31,994 (26.8% of the original dataset) exact duplicate observations w
 ### Missing Data
 
 ```{python}
-# Create an initial data-quality summary for each variable
+# Audit the data types, missingness, and unique values
 audit = pd.DataFrame({
-    "dtype": hotel_clean.dtypes.astype(str),
-    "missing_n": hotel_clean.isna().sum(),
-    "missing_pct": hotel_clean.isna().mean() * 100,
-    "unique_n": hotel_clean.nunique()
+    "Data type": hotel_clean.dtypes.astype(str),
+    "Missing values": hotel_clean.isna().sum(),
+    "Missing percentage": hotel_clean.isna().mean(),
+    "Unique values": hotel_clean.nunique(),
 })
 
+# Keep only variables containing missing values
+missing_summary = (
+    audit.loc[audit["Missing values"] > 0]
+    .sort_values("Missing percentage", ascending=False)
+    .rename_axis("Variable")
+    .reset_index()
+)
 
-# Show in descending order
-audit = audit.sort_values("missing_pct", ascending=False)
-
-audit
+display(
+    missing_summary.style
+    .format({
+        "Missing values": "{:,}",
+        "Missing percentage": "{:.2%}",
+        "Unique values": "{:,}",
+    })
+    .hide(axis="index")
+)
 ```
 
-After duplicate removal, missing values are found in four variables. `company` had 82,137 such values (93.98%), followed by `agent` with 12,193 (13.95%), `country` with 452 (0.52%), and `children` with only four. According to the dataset documentation, missing values in `company` and `agent` indicate that these fields were not applicable rather than unknown. Because `company` was highly sparse and contained many distinct identifiers, it was converted into a binary indicator showing whether a company was associated with the booking, and the original ID was removed. `agent` was retained as a categorical variable, with 'NA' entries labeled as `No Agent`; infrequent agent categories will later be grouped before one-hot encoding. Missing `country` values were labeled as `Unknown Country`, keeping them distinct from observed but infrequent countries. The four missing children values were retained at this stage and will be imputed within the preprocessing pipeline using a value learned from the training data only.
+After duplicate removal, missing values are found in four variables. `company` had 82,137 such values (93.98%), followed by `agent` with 12,193 (13.95%), `country` with 452 (0.52%), and `children` with only four. According to the dataset documentation, missing values in `company` and `agent` indicate that these fields were not applicable rather than unknown. Because `company` was highly sparse and contained many distinct identifiers, it will be replaced with a binary indicator showing whether a company is associated with each booking. `agent` will be retained as a categorical variable, with 'NA' entries labeled as `No Agent`, and infrequent agent categories will later be grouped before one-hot encoding. Missing `country` values will be labeled as `Unknown Country` as a separate category. The four missing children values were retained at this stage and will be imputed within the preprocessing pipeline using a value learned from the training data.
 
 
 ```{python}
-# company: convert to binary indicator, drop raw ID (94% missing, too sparse to use directly)
+# Replace the sparse company ID with an availability indicator
 hotel_clean["has_company"] = hotel_clean["company"].notna().astype(int)
 hotel_clean = hotel_clean.drop(columns=["company"])
 
-print(f"'has_company' created; original 'company' column dropped.")
 
 # agent: encode missing values as "No Agent" and treat IDs as categories ( unique IDs will be grouped later)
 hotel_clean["agent"] = (
@@ -145,12 +188,15 @@ hotel_clean["agent"] = (
 # country: encode missing values as "Unknown Country" (keeps unknown countries separate from rare observed countries)
 hotel_clean["country"] = (
     hotel_clean["country"]
+    .astype("string")
     .fillna("Unknown Country")
 )
 
 
-print(hotel_clean[["agent", "country"]].isna().sum())
-
+# Verify the deterministic missing-value treatments
+assert "company" not in hotel_clean.columns
+assert hotel_clean["has_company"].isin([0, 1]).all()
+assert hotel_clean[["agent", "country"]].isna().sum().sum() == 0
 
 
 ```
@@ -160,40 +206,39 @@ print(hotel_clean[["agent", "country"]].isna().sum())
 
 
 ```{python}
-
-#Examine the relationship between reservation status and cancellation
-status_table = pd.crosstab(
-    hotel_clean["reservation_status"],
-    hotel_clean["is_canceled"],
-    margins=True
+# Examine whether reservation status reveals the response
+leakage_summary = (
+    hotel_clean
+    .groupby("reservation_status", as_index=False)
+    .agg(
+        Observations=("is_canceled", "size"),
+        cancellation_rate=("is_canceled", "mean"),
+    )
+    .rename(columns={
+        "reservation_status": "Reservation status",
+        "cancellation_rate": "Cancellation rate",
+    })
 )
 
-display(status_table)
-
-# Calculate cancellation proportions within each reservation status
-status_proportions = pd.crosstab(
-    hotel_clean["reservation_status"],
-    hotel_clean["is_canceled"],
-    normalize="index"
+display(
+    leakage_summary.style
+    .format({
+        "Observations": "{:,}",
+        "Cancellation rate": "{:.2%}",
+    })
+    .hide(axis="index")
 )
 
-display(status_proportions)
-
-
-# Remove variables containing post-outcome information
-leakage_variables = [
+# Remove variables that contain post-outcome information
+hotel_clean = hotel_clean.drop(columns=[
     "reservation_status",
-    "reservation_status_date"
-]
-
-hotel_clean = hotel_clean.drop(columns=leakage_variables)
-
-print(f"Remaining variables: {hotel_clean.shape[1]}")
+    "reservation_status_date",
+])
 ```
 
 
-
 `reservation_status` was identified as a source of data leakage because it directly reflects the final outcome of a booking. All observations with a status of Canceled or No-Show had `is_canceled` = 1, while all Check-Out observations had `is_canceled = 0`. `reservation_status_date` was also excluded because it records when the final status was assigned and is therefore only known after the booking outcome. Both variables were removed before modeling.
+
 
 
 ### Suspicious or Invalid Values
@@ -201,10 +246,36 @@ print(f"Remaining variables: {hotel_clean.shape[1]}")
 
 
 ```{python}
-# Summarize numerical variables to inspect ranges and extreme values
-numeric_summary = hotel_clean.describe().T
 
-display(numeric_summary)
+total_nights = (
+    hotel_clean["stays_in_weekend_nights"]
+    + hotel_clean["stays_in_week_nights"]
+)
+
+# Inspect the ranges of variables with potentially questionable values
+range_summary = (
+    hotel_clean
+    .assign(total_nights=total_nights)
+    [["adults", "children", "babies", "total_nights", "adr"]]
+    .describe(percentiles=[0.50, 0.999])
+    .T
+    [["min", "50%", "99.9%", "max"]]
+    .rename_axis("Variable")
+    .reset_index()
+)
+
+display(
+    range_summary.style
+    .format({
+        "min": "{:,.2f}",
+        "50%": "{:,.2f}",
+        "99.9%": "{:,.2f}",
+        "max": "{:,.2f}",
+    })
+    .hide(axis="index")
+)
+
+
 
 # Summarize potentially suspicious or unusual observations
 suspicious_summary = pd.DataFrame({
@@ -243,7 +314,7 @@ display(suspicious_summary)
 
 ```
 
-Initial screening identified several suspicious observations, including bookings with no recorded guests, bookings with 0 nights, extreme values of children, babies, ADR and adults. Because extreme values are not necessarily data errors, these observations were examined in greater detail before making any cleaning decisions.
+Initial screening identified several suspicious observations, including bookings with no recorded guests, bookings with zero nights, extreme values of children, babies, ADR and adults. Because extreme values are not necessarily data errors, these observations were examined in greater detail before making any cleaning decisions.
 
 
 
@@ -253,37 +324,42 @@ Initial screening identified several suspicious observations, including bookings
 #### Zero Adults and Zero Guests
 
 ```{python}
-# Examine bookings with zero adults
-zero_adults = hotel_clean[
-    hotel_clean["adults"] == 0
-]
+# Identify bookings with no recorded adults
+zero_adults = hotel_clean[hotel_clean["adults"] == 0]
 
-# Determine how many zero-adult bookings also contain no guests
-zero_guests = zero_adults[
-    (zero_adults["children"] == 0) &
-    (zero_adults["babies"] == 0)
-]
+# Separate confirmed zero-guest bookings
+zero_guests = zero_adults[(zero_adults["children"] == 0)& (zero_adults["babies"] == 0)]
 
-# Zero-adult bookings with at least one recorded child or baby
-zero_adults_with_dependents = zero_adults[
-    (zero_adults["children"] > 0) |
-    (zero_adults["babies"] > 0)
-]
+# Identify zero-adult bookings with children or babies
+zero_adults_with_dependents = zero_adults[(zero_adults["children"] > 0)| (zero_adults["babies"] > 0)]
 
-print(f"Bookings with zero adults: {len(zero_adults):,}")
-print(f"Confirmed zero-guest bookings: {len(zero_guests):,}")
-print(
-    f"Zero-adult bookings with children or babies: "
-    f"{len(zero_adults_with_dependents):,}"
+# Summarize the investigation
+zero_guest_summary = pd.DataFrame({
+    "Check": [
+        "Zero adults",
+        "Zero adults with children or babies",
+        "Confirmed zero guests",
+        "Zero guests also having zero total nights",
+    ],
+    "Count": [
+        len(zero_adults),
+        len(zero_adults_with_dependents),
+        len(zero_guests),
+        len(zero_guests[
+            (zero_guests["stays_in_weekend_nights"] +
+             zero_guests["stays_in_week_nights"]) == 0
+        ])
+    ],
+})
+
+display(
+    zero_guest_summary.style
+    .format({"Count": "{:,}"})
+    .hide(axis="index")
 )
 
-
-
+# Remove bookings with no recorded guests
 hotel_clean = hotel_clean.drop(index=zero_guests.index).copy()
-
-print(f"Observations removed: {len(zero_guests):,}")
-
-print(f"Observations remaining: {len(hotel_clean):,}")
 
 ```
 
@@ -296,110 +372,74 @@ There were 385 bookings with zero recorded adults. Further examination shows tha
 
 ```{python}
 
+# Restore reservation status for diagnostic analysis only
+booking_details = hotel_clean.copy()
+booking_details["reservation_status"] = hotel.loc[booking_details.index, "reservation_status"]
+
 # Identify bookings with zero recorded nights
-zero_nights = hotel_clean[
-    (   hotel_clean["stays_in_weekend_nights"] +
-        hotel_clean["stays_in_week_nights"]
-    ) == 0
+total_nights = (
+    hotel_clean["stays_in_weekend_nights"]
+    + hotel_clean["stays_in_week_nights"]
+)
+
+zero_nights = hotel_clean.loc[total_nights == 0].copy()
+
+zero_night_details = booking_details.loc[zero_nights.index]
+
+profile_vars = [
+    "reservation_status",
+    "market_segment",
+    "customer_type",
+    "distribution_channel",
 ]
 
-print(f"Zero-night bookings: {len(zero_nights):,}")
+tables = []
 
-# Examine a sample of zero-night bookings
+# Summarize each variable using the same comparison sample
+for var in profile_vars:
+    summary = pd.DataFrame({
+        "Zero-night bookings": zero_night_details[var].value_counts(
+            normalize=True
+        ),
+        "All bookings": booking_details[var].value_counts(
+            normalize=True
+        ),
+    }).fillna(0)
+
+    summary = summary[summary["Zero-night bookings"] >= 0.05]
+    summary = summary.sort_values("Zero-night bookings", ascending=False)
+    summary = summary.rename_axis("Category").reset_index()
+    summary.insert(0, "Variable", var.replace("_", " ").title())
+
+    tables.append(summary)
+
+# Combine the summaries into one report table
+profile = pd.concat(tables, ignore_index=True)
+
 display(
-    zero_nights[
-        [
-            "hotel",
-            "is_canceled",
-            "lead_time",
-            "adults",
-            "children",
-            "babies",
-            "adr",
-            "market_segment",
-            "customer_type"
-        ]
-    ].head(20)
-)
-
-
-print(
-    f"Zero-night bookings with ADR = 0: "
-    f"{(zero_nights['adr'] == 0).sum():,}"
-)
-
-
-
-
-# Examine characteristics of zero-night bookings
-
-zero_night_details = zero_nights.copy()
-
-zero_night_details["reservation_status"] = hotel.loc[
-    zero_night_details.index, "reservation_status"
-]
-
-print("Reservation status:")
-display(
-    zero_night_details["reservation_status"]
-    .value_counts(normalize=True)
-    .to_frame("proportion")
-)
-
-
-print("Market segment:")
-display(
-    zero_night_details["market_segment"]
-    .value_counts(normalize=True)
-    .to_frame("proportion")
-)
-
-print("Customer type:")
-display(
-    zero_night_details["customer_type"]
-    .value_counts(normalize=True)
-    .to_frame("proportion")
-)
-
-print("Distribution channel:")
-display(
-    zero_night_details["distribution_channel"]
-    .value_counts(normalize=True)
-    .to_frame("proportion")
+    profile.style
+    .format({
+        "Zero-night bookings": "{:.1%}",
+        "All bookings": "{:.1%}",
+    })
+    .hide(axis="index")
 )
 ```
 
 
-There were 651 bookings with zero recorded nights, and all 651 also had an ADR of zero. To investigate whether these observations represented a specific type of booking, we compared their reservation status, market segment, customer type, and distribution channel. About 95.5% were recorded as Check-Out, suggesting that most represented actual completed bookings rather than invalid records. However, they were not concentrated in any single segment, which is inconsistent with these being a distinct booking type. Online TA accounted for 45.6% of the bookings, followed by Direct (20.1%) and Offline TA/TO (18.7%), while only 2.3% were Complementary. In addition, 84.6% were Transient customers. Therefore, the bookings themselves were retained, but their zero values for ADR and length of stay were flagged as potentially missing or miscoded.
-
+After 60 was removed from the zero guest cleaning step, there were 591 bookings with zero recorded nights, and all of them had an ADR of zero. To investigate whether these observations represented a specific type of booking, we compared their reservation status, market segment, customer type, and distribution channel. About 96.1% were recorded as Check-Out, suggesting that most represented actual completed bookings rather than invalid records. However, they were not concentrated in any single segment, which is inconsistent with these being a distinct booking type. Online TA accounted for 45.3% of the bookings, followed by Direct (21.7%) and Offline TA/TO (17.9%), while only 5.1% were Groups. In addition, 83.9% were Transient customers. Therefore, we retain these bookings but treat their zero ADR and length-of-stay values as potentially missing or miscoded. We create adjusted variables `adr_adj` and `total_nights_adj`, setting both to missing for bookings with zero nights and zero ADR while leaving the original columns unchanged. The adjusted variables will be used for modeling, with missing values imputed within the preprocessing pipeline using medians learned from the training data.
 
 ```{python}
-# Flag bookings with potentially missing/miscoded stay information
-hotel_clean["questionable_stay_data"] = (
-    (
-        hotel_clean["stays_in_weekend_nights"] +
-        hotel_clean["stays_in_week_nights"]
-    ) == 0
-) & (hotel_clean["adr"] == 0)
+questionable_stay = (total_nights == 0) & (hotel_clean["adr"] == 0)
 
-# Create adjusted versions for analyses involving ADR or length of stay
 hotel_clean["adr_adj"] = hotel_clean["adr"].where(
-    ~hotel_clean["questionable_stay_data"],
-    np.nan
+    ~questionable_stay, np.nan
 )
 
-hotel_clean["total_nights_adj"] = (
-    hotel_clean["stays_in_weekend_nights"] +
-    hotel_clean["stays_in_week_nights"]
-).where(
-    ~hotel_clean["questionable_stay_data"],
-    np.nan
+hotel_clean["total_nights_adj"] = total_nights.where(
+    ~questionable_stay, np.nan
 )
 
-print(
-    f"Bookings flagged for potentially missing stay data: "
-    f"{hotel_clean['questionable_stay_data'].sum():,}"
-)
 ```
 
 
@@ -435,10 +475,6 @@ display(
 # Treat the negative ADR as missing in the adjusted variable
 hotel_clean.loc[negative_adr.index, "adr_adj"] = np.nan
 
-print(
-    f"Negative values remaining in adr_adj: "
-    f"{(hotel_clean['adr_adj'] < 0).sum():,}"
-)
 ```
 
 One booking had a negative ADR of -6.38. Because the remaining booking information appeared valid, the observation was retained. The negative rate was treated as invalid for price-related analysis and set to missing in adr_adj for later imputation.
@@ -446,35 +482,23 @@ One booking had a negative ADR of -6.38. Because the remaining booking informati
 
 
 ```{python}
+# Compare the largest ADR values with nearby high values
 display(
-    hotel_clean["adr_adj"]
-    .quantile([0.50, 0.90, 0.95, 0.99, 0.999, 1.00])
-    .to_frame("adr_adj")
-)
-
-display(
-    hotel_clean.nlargest(10, "adr_adj")[
+    hotel_clean.nlargest(5, "adr_adj")[
         [
-            "hotel", "adults", "children", "babies",
-            "stays_in_weekend_nights", "stays_in_week_nights",
-            "adr_adj", "market_segment", "customer_type",
-            "is_canceled"
+            "hotel",
+            "adr_adj",
+            "stays_in_weekend_nights",
+            "stays_in_week_nights",
+            "market_segment",
+            "customer_type",
         ]
-    ]
+    ].style.format({"adr_adj": "{:,.2f}"}).hide(axis="index")
 )
-
-# Identify the isolated high-ADR outlier
-extreme_adr = hotel_clean[hotel_clean["adr_adj"] > 1000]
-
-print(f"Bookings with adr_adj above 1,000: {len(extreme_adr):,}")
 
 # Treat the outlier as missing in the adjusted variable
 hotel_clean.loc[hotel_clean["adr_adj"] > 1000, "adr_adj"] = np.nan
 
-print(
-    f"ADR values above 1,000 remaining in adr_adj: "
-    f"{(hotel_clean['adr_adj'] > 1000).sum():,}"
-)
 ```
 
 
@@ -489,8 +513,6 @@ hotel_clean.nlargest(10, "adults")[
     ["hotel", "adults", "children", "babies",
      "market_segment", "customer_type", "adr", "is_canceled"]
 ]
-
-
 
 ```
 
@@ -529,22 +551,13 @@ extreme_children = hotel_clean[
     hotel_clean["children"] > 3
 ]
 
-print(f"Bookings with more than three children: {len(extreme_children):,}")
-
 # Remove the isolated outlier in number of children
 hotel_clean = hotel_clean.drop(index=extreme_children.index).copy()
-
-
-print(f"Observations removed: {len(extreme_children):,}")
-print(f"Observations remaining: {len(hotel_clean):,}")
-
 
 ```
 
 
 The distribution of `children` was concentrated between zero and three. Only one booking recorded ten children, with no observations between four and nine. Because it included only two adults and was not classified under the Group market segment, it was treated as a likely data-entry error and removed. 
-
-
 
 
 #### Extreme Values in Number of Babies
@@ -588,9 +601,6 @@ The distribution of `babies` was concentrated between zero and two. Only two boo
 ```{python}
 # Remove bookings with implausibly large numbers of babies
 hotel_clean = hotel_clean.drop(index=extreme_babies.index).copy()
-
-print(f"Observations removed: {len(extreme_babies):,}")
-print(f"Observations remaining: {len(hotel_clean):,}")
 ```
 
 
@@ -738,7 +748,7 @@ plt.show()
 
 ```
 
-Cancellation rates increased steadily with lead time. Bookings made 0–7 days in advance had the lowest cancellation rate at 8.49%, compared with 25.33% for 8–30 days and 41.38% for more than 365 days. This clear positive relationship suggests that `lead_time` may be an important predictor of cancellation. However, the final interval contains only 464 bookings, so its estimated cancellation rate may be less stable.
+Cancellation rates increased steadily with lead time.This clear positive relationship suggests that `lead_time` may be an important predictor of cancellation. However, the final interval contains only 464 bookings, so its estimated cancellation rate may be less stable.
 
 
 
@@ -787,7 +797,7 @@ plt.show()
 ```
 
 
-Deposit type also showed a strong relationship with cancellation. Bookings with a non-refundable deposit had a cancellation rate of 94.72%, compared with 26.71% for bookings with no deposit and 26.51% for refundable deposits. This large difference suggests that `deposit_type` may be an important predictor of cancellation.   
+Deposit type also showed a strong relationship with cancellation. Bookings with a non-refundable deposit had a cancellation rate of 94.56%, compared with 26.70% for bookings with no deposit and 24.42% for refundable deposits. This large difference suggests that `deposit_type` may be an important predictor of cancellation.   
 
 
 
@@ -897,7 +907,7 @@ plt.show()
 
 
 
-Previous non-canceled booking history showed a strong relationship with the response. Bookings with no such history had a cancellation rate of 28.47%, compared with 4.75%, 5.94%, and 5.62% for the one, two-to-five, and six-or-more groups, respectively. Because the three positive-count groups had similar rates, the main distinction appears to be whether any previous non-canceled booking existed rather than the exact number. Therefore, a binary feature such as `has_prior_non_canceled_booking` will be considered during feature engineering and compared with the original count through cross-validation.
+Previous non-canceled booking history showed a strong relationship with the response. Bookings with no such history had a cancellation rate of 28.47%, compared with 4.75%, 5.94%, and 5.62% for the one, two-to-five, and six-or-more groups, respectively. Because the three positive-count groups had similar rates, the main distinction appears to be whether any previous non-canceled booking existed rather than the exact number. Therefore, we retain the original count and add a binary has_prior_non_canceled_booking feature to capture the distinction between bookings with and without prior non-canceled booking history.
 
 
 
@@ -1056,11 +1066,10 @@ for i, rate in enumerate(market_segment_plot["cancellation_rate"]):
 plt.tight_layout()
 plt.show()
 
-
 ```
 
 
-Cancellation rates differed substantially across market segments. Online TA represented the largest segment and had the highest cancellation rate among adequately represented categories at 35.38%, followed by Groups at 27.27% and Aviation at 21.99%. In contrast, Corporate, Complementary, Direct, and Offline TA/TO bookings had cancellation rates between approximately 12% and 15%. Although the Undefined category had a 100% cancellation rate, it contained only two bookings and therefore did not provide a reliable estimate. These observations will be retained but handled as a rare category during preprocessing. Overall, market_segment appears to contain useful predictive information and will be retained as a categorical predictor. Its relationship with deposit_type will be examined later because the unusually high cancellation rate for non-refundable bookings may be concentrated within particular market segments.
+Cancellation rates differed substantially across market segments. Online TA represented the largest segment and had the highest cancellation rate among adequately represented categories at 35.38%, followed by Groups at 27.27% and Aviation at 21.99%. In contrast, Corporate, Complementary, Direct, and Offline TA/TO bookings had cancellation rates between approximately 12% and 15%. Although the Undefined category had a 100% cancellation rate, it contained only two bookings and therefore did not provide a reliable estimate. Overall, market_segment appears to contain useful predictive information and will be retained as a categorical predictor. Its relationship with deposit_type will be examined later because the unusually high cancellation rate for non-refundable bookings may be concentrated within particular market segments.
 
 
 
@@ -1111,35 +1120,11 @@ plt.tight_layout()
 plt.show()
 
 
-# Check whether the complete-separation pattern holds across
-# hotel type and arrival year
-parking_hotel_audit = (
-    train_df.assign(has_parking_request=has_parking_request)
-    .groupby(["hotel", "has_parking_request"])["is_canceled"]
-    .agg(bookings="size", cancellations="sum", cancellation_rate="mean")
-)
-
-parking_year_audit = (
-    train_df.assign(has_parking_request=has_parking_request)
-    .groupby(["arrival_date_year", "has_parking_request"])["is_canceled"]
-    .agg(bookings="size", cancellations="sum", cancellation_rate="mean")
-)
-
-# Summarize the zero-cancellation pattern across hotels and years
-parking_stability = pd.concat(
-    {
-        "Hotel": parking_hotel_audit.xs(True, level="has_parking_request"),
-        "Arrival Year": parking_year_audit.xs(True, level="has_parking_request")
-    },
-    names=["dimension", "group"]
-)
-
-display(parking_stability)
 ```
 
 
 
-Parking-space requirements exhibited complete separation from the response. None of the 5,867 training bookings requiring at least one parking space were canceled, compared with a cancellation rate of 30.05% among bookings requiring no parking space. This pattern was consistent across both hotels and all three arrival years, indicating that it was not caused by a small subgroup or temporal fluctuation. However, the dataset documentation indicates that this variable may incorporate information from the booking change log up to the day before arrival rather than exclusively information recorded at the initial reservation. Because the intended prediction point is the time of booking, the variable may contain outcome-dependent operational information. It was therefore excluded from the modeling feature set to avoid potentially optimistic performance.
+Parking-space requirements exhibited complete separation from the response. None of the 5,867 training bookings requiring at least one parking space were canceled, compared with a cancellation rate of 30.05% among bookings requiring no parking space. The dataset documentation indicates that this variable may incorporate information from the booking change log up to the day before arrival rather than exclusively information recorded at the initial reservation. Because the intended prediction point is the time of booking, the variable may contain outcome-dependent operational information. It was therefore excluded from the modeling feature set to avoid potentially optimistic performance.
 
 
 
@@ -1175,7 +1160,7 @@ plt.show()
 ```
 
 
-Canceled bookings had higher adjusted ADRs, with a median of $109.65 and a mean of $117.57, compared with $95.00 and $103.04 for non-canceled bookings. Although the distributions overlapped substantially, this upward shift suggests that `adr_adj` may provide useful predictive information. Outlier markers were omitted from the boxplot for readability, but all observations were retained in the analysis.
+Canceled bookings had higher adjusted ADRs, with a median of 103.65 and a mean of $117.57, compared with $95.00 and $103.04 for non-canceled bookings. Although the distributions overlapped substantially, this upward shift suggests that `adr_adj` may provide useful predictive information. The summary statistics and boxplot use non-missing values of adr_adj. Outlier markers are hidden for readability, without excluding additional values from the calculations.
 
 
 
@@ -1219,7 +1204,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-City Hotel bookings had a cancellation rate of 30.16%, compared with 23.38% for Resort Hotel bookings。 Both hotels contributed substantial numbers of observations, with 42,669 City Hotel bookings and 27,112 Resort Hotel bookings in the training set. Although cancellation was more common at the City Hotel, this comparison does not account for differences in customer types, booking channels, or lead times. Further analysis will examine whether the relationship between lead time and cancellation differs across the two hotels.
+City Hotel bookings had a cancellation rate of 30.16%, compared with 23.38% for Resort Hotel bookings。 Both hotels contributed substantial numbers of observations, with 42,669 City Hotel bookings and 27,112 Resort Hotel bookings in the training set. Although cancellation was more common at the City Hotel, this comparison does not account for differences in customer types, booking channels, or lead times. 
 
 
 
@@ -1443,11 +1428,11 @@ Most numerical predictors show weak to moderate correlations, suggesting limited
 
 The bivariate and stratified analyses reveal several patterns that will guide feature engineering and modeling:
 
-- Cancellation rates increase steadily with `lead_time`, making it an important predictor whose raw and transformed forms can be compared.
+- Cancellation rates increase steadily with `lead_time`, we We use log_lead_time in the primary models to compress its right-skewed distribution.
 
-- `deposit_type` should be considered together with `market_segment`, since Non Refund bookings are concentrated mainly in Groups and Offline TA/TO. An interaction term may be useful for logistic regression.
+- `deposit_type` should be considered together with `market_segment`, since Non Refund bookings are concentrated mainly in Groups and Offline TA/TO. An interaction term may be useful for logistic regression. We alse add `non_refund_groups` and `non_refund_offline_ta_to` to represent the two combinations associated with particularly high cancellation rates.
 
-- Several count variables, including `previous_bookings_not_canceled`, `total_of_special_requests`, and `booking_changes`, show most of their separation between zero and any. Binary versions will therefore be compared with their original counts.
+- * `previous_bookings_not_canceled` and `total_of_special_requests` show their largest differences in cancellation rates between zero and positive counts. We retain the original counts and add `has_prior_non_canceled_booking` and `has_special_request` to capture these distinctions.
 
 - The most surprising pattern was found in `previous_cancellations`: bookings with exactly one previous cancellation have a 76.49% cancellation rate, compared with 26.72% for those with two or more. This reversal is partly explained by the much larger proportion of prior non-canceled bookings in the latter group, so both history variables should be interpreted jointly.
 
@@ -1455,7 +1440,8 @@ The bivariate and stratified analyses reveal several patterns that will guide fe
 
 - Cancellations make up approximately 27% of the response. We will preserve this moderately imbalanced distribution through stratified resampling and evaluate performance with ROC AUC and confusion-matrix metrics rather than relying on accuracy alone.
 
-- The unusually strong separation associated with `required_car_parking_spaces` raises leakage concerns, so we will exclude it from the primary models. We will retain `booking_changes` only if the intended prediction setting includes information recorded after the initial reservation.
+- * The unusually extremenly strong association between `required_car_parking_spaces` and cancellation raises concerns about information availability at booking time. We exclude this variable and its binary version from the primary models. We also exclude `booking_changes` and `has_booking_change`, because they describe changes occurring after the initial reservation.
+
 
 
 These findings support targeted feature engineering while retaining potentially useful predictors for model validation.
@@ -1463,8 +1449,10 @@ These findings support targeted feature engineering while retaining potentially 
 
 
 
-
-
+```{python}
+import sys
+print(sys.executable)
+```
 
 
 
@@ -1639,7 +1627,7 @@ The preprocessing validation confirmed that all 31 selected predictors were pres
 All model development and hyperparameter selection were conducted using the training data only. Five-fold stratified cross-validation was used so that each fold retained approximately the same cancellation proportion as the complete training set. The same fold definition was shared across all candidate models to support a fair comparison.
 
 ```{python}
-import importlib
+
 import src.train_models as train_models
 
 importlib.reload(train_models)
@@ -1653,6 +1641,8 @@ print(f"Cross-validation folds: {CV_FOLDS}")
 print("Stratification: enabled")
 print(f"Random state: {RANDOM_STATE}")
 
+
+
 ```
 
 
@@ -1663,7 +1653,6 @@ print(f"Random state: {RANDOM_STATE}")
 
 
 ```{python}
-import importlib
 import src.train_models as train_models
 
 train_models = importlib.reload(train_models)
@@ -2078,7 +2067,7 @@ print(f"One-SE cutoff: {one_se_cutoff:.4f}")
 
 
 
-# XG-Boost
+## XG-Boost
 
 ```{python}
 
@@ -2359,7 +2348,7 @@ display(
 
 
 
-# QDA
+## QDA
 
 ```{python}
 
@@ -2540,7 +2529,21 @@ cv_comparison = (
     .reset_index(drop=True)
 )
 
-display(cv_comparison.round(4))
+display(
+    cv_comparison.rename(columns={
+        "model": "Model",
+        "mean_cv_train_roc_auc": "Train AUC",
+        "mean_cv_validation_roc_auc": "CV AUC",
+        "train_validation_gap": "AUC gap",
+        "std_cv_validation_roc_auc": "CV AUC SD",
+        "mean_cv_validation_accuracy": "Accuracy",
+        "mean_cv_validation_sensitivity": "Sensitivity",
+        "mean_cv_validation_specificity": "Specificity",
+    })
+    .style
+    .format(precision=4)
+    .hide(axis="index")
+)
 ```
 
 

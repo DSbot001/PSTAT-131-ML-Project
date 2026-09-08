@@ -24,10 +24,6 @@ SEPARATION_SUSPECT_COLUMNS = [
     "has_parking_request",         # Binary indicator of any parking-space request 
 ]
 
-# rows that have adr = 0 and total_nights = 0 are questionable stays and should be excluded from the training set
-QUALITY_FLAG_COLUMNS = [
-    "questionable_stay_data",
-]
 
 
 # Raw variables replaced by cleaned or more interpretable versions
@@ -42,7 +38,6 @@ SUPERSEDED_COLUMNS = [
 PRIMARY_INELIGIBLE_COLUMNS = (
     POST_BOOKING_COLUMNS
     + SEPARATION_SUSPECT_COLUMNS
-    + QUALITY_FLAG_COLUMNS
     + SUPERSEDED_COLUMNS
 )
 
