@@ -45,7 +45,6 @@ MODEL_DIR.mkdir(exist_ok=True)
 
 
 RETRAIN_MODELS = False  
-
 ```
 
 
@@ -1449,14 +1448,6 @@ These findings support targeted feature engineering while retaining potentially 
 
 
 
-```{python}
-import sys
-print(sys.executable)
-```
-
-
-
-
 
 
 # Feature Engineering and Preprocessing
@@ -1469,21 +1460,21 @@ Feature engineering and preprocessing are implemented in separate Python modules
 
 The following engineered predictors are created:
 
-- `log_lead_time` reduces the strong right skew in `lead_time`, while the original variable remains available for model comparison.
+- `log_lead_time` reduces the strong right skew in `lead_time` and is selected for the primary model.
 
-- `arrival_month_sin` and `arrival_month_cos` represent annual seasonality while treating December and January as adjacent. `arrival_month_num` provides an alternative numerical representation for tree-based models.
+- `arrival_month_sin` and `arrival_month_cos` represent annual seasonality while treating December and January as adjacent. `arrival_month_num`  records the calendar month number but is not selected for the primary models.
 
-- `weekend_night_ratio` captures the composition of a stay relative to `total_nights_adj`.
+- `weekend_night_ratio` measures the proportion of recorded nights occurring on weekends. It remains missing when `total_nights_adj` is missing or nonpositive.
 
-- Binary variables `has_prior_non_canceled_booking`, `has_special_request`, and `is_family_booking` to capture the threshold patterns observed in the count variables.
+- Binary variables `has_prior_non_canceled_booking`and `has_special_request` capture the distinction between zero and positive counts identified during EDA. Their original count variables are also retained in the primary models.
+
+- `is_family_booking` indicates whether a booking includes at least one child or baby. It remains missing when missing guest counts prevent this determination.
 
 - `previous_cancellations_bucket` represents the non-monotonic pattern across zero, one, and two or more previous cancellations.
 
 - `non_refund_groups` and `non_refund_offline_ta_to` capture the two high-risk combinations of `deposit_type` and `market_segment` identified during EDA.
 
-
-- `has_booking_change` and `has_parking_request` provide binary alternatives to their original count variables for later sensitivity analyses. Both are excluded from the primary booking-time model.
-
+- `has_booking_change` and `has_parking_request` are also created, but both are excluded from the primary booking-time models.
 
 
 
@@ -1491,7 +1482,7 @@ The validation checks confirm that:
 
 - Feature engineering preserves the number and ordering of observations in both the training and test sets.
 
-- No original predictor is removed, allowing raw and engineered representations to be compared during model validation.
+- No original predictor is removed.
 
 - All expected engineered predictors are created in both data splits, and the resulting training and test columns match exactly.
 
@@ -1501,7 +1492,8 @@ The validation checks confirm that:
 
 - `previous_cancellations_bucket` contains only the intended levels `0`, `1`, and `2+`.
 
-These checks leave 69,781 training observations unchanged and increase the number of available predictors from 32 to 45
+
+These checks leave 69,781 training observations unchanged and increase the number of available predictors from 31 to 44
 
 
 
@@ -1566,7 +1558,7 @@ for threshold in [0.001, 0.002, 0.005]:
         )
 ```
 
-A threshold of 0.1% retained 63 `agent` levels and pooled 4.77% of its observations. The 0.5% threshold retained only 17 `agent` levels and pooled 14.78% of the observations, resulting in substantial information loss. The intermediate 0.2% threshold retained 40 `agent` levels and 32 `country` levels while pooling 8.19% and 3.26% of their observations. Therefore, 0.2% was selected as a balance between retaining category-level information and reducing sparse one-hot-encoded columns.
+A threshold of 0.1% retained 63 `agent` levels and pooled 4.77% of its observations. The 0.5% threshold retained only 17 `agent` levels and pooled 14.78% of the observations, which may result in information loss. The intermediate 0.2% threshold retained 40 `agent` levels and 32 `country` levels while pooling 8.19% and 3.26% of their observations. Therefore, 0.2% was selected as a balance between retaining category-level information and reducing sparse one-hot-encoded columns.
 
 
 
@@ -1600,11 +1592,11 @@ print(f"Predictors after one-hot encoding: {X_train_processed.shape[1]}")
 ```
 
 
-The primary engineered specification selects 31 predictors through explicit column lists. Variables that contain post-booking information, show unexplained separation, describe data quality, or have been superseded by cleaned versions are blocked from the primary design matrix.
+The primary engineered specification selects 31 predictors through explicit column lists. Variables that contain post-booking information, show unexplained separation, or have been superseded by cleaned versions are blocked from the primary design matrix.
 
 The preprocessing pipeline then applies the following steps:
 
-- Missing numerical values are imputed using the median values from the training data., and for scale-sensitive models like Discriminant Analyses, we apply standardization.
+- Missing numerical values are imputed using training-data medians and standardized for scale-sensitive models.
 
 - Binary predictors receive most-frequent imputation but retain their 0/1 representation.
 
@@ -1616,6 +1608,8 @@ The preprocessing pipeline then applies the following steps:
 
 - All variables not explicitly assigned to a preprocessing group are removed through `remainder="drop"`.
 
+- The fitted preprocessor here is used only for structural validation. During cross-validation, a fresh preprocessor is fitted within each training fold as part of the model pipeline.
+
 The preprocessing validation confirmed that all 31 selected predictors were present, no predictor was assigned to multiple preprocessing groups, and none of the predefined ineligible variables entered the primary design matrix. The transformation preserved all 69,781 training observations and produced 134 numerical model-matrix columns after one-hot encoding. The resulting matrix contained no missing or infinite values, and all transformed feature names were unique.
 
 
@@ -1624,24 +1618,17 @@ The preprocessing validation confirmed that all 31 selected predictors were pres
 
 # Model Development and Cross-Validation
 
-All model development and hyperparameter selection were conducted using the training data only. Five-fold stratified cross-validation was used so that each fold retained approximately the same cancellation proportion as the complete training set. The same fold definition was shared across all candidate models to support a fair comparison.
+All candidate models were trained using the same five stratified cross-validation folds. Hyperparameter selection used mean validation ROC AUC as the primary criterion because the response is binary and the cancellation classes are imbalanced. Accuracy, sensitivity, and specificity were also recorded to describe the operating characteristics of each model. For each model, preprocessing was fitted within the corresponding training fold as part of the modeling pipeline.
+
+The tuning grids focused on parameters that control regularization, model complexity, and stochastic sampling. Other implementation settings were held fixed to keep the search computationally feasible and to avoid an excessively large search over highly related parameters. The same scoring metrics and cross-validation folds were used across models to support a consistent comparison.
 
 ```{python}
 
 import src.train_models as train_models
-
-importlib.reload(train_models)
-
 from src.train_models import make_cv, CV_FOLDS
 
 # Create identical cross-validation folds for all candidate models
 cv = make_cv(random_state=RANDOM_STATE)
-
-print(f"Cross-validation folds: {CV_FOLDS}")
-print("Stratification: enabled")
-print(f"Random state: {RANDOM_STATE}")
-
-
 
 ```
 
@@ -1655,63 +1642,24 @@ print(f"Random state: {RANDOM_STATE}")
 ```{python}
 import src.train_models as train_models
 
-train_models = importlib.reload(train_models)
+elastic_net_path = MODEL_DIR / "elastic_net_search_v2.joblib"
 
-elastic_net_path = (
-    MODEL_DIR / "elastic_net_search_v2.joblib"
-)
-
-check_pipeline = (
-    train_models.make_elastic_net_pipeline(
-        RANDOM_STATE
-    )
-)
-
-print("Scoring:", train_models.SCORING.keys())
-print(
-    "Maximum iterations:",
-    check_pipeline.named_steps["model"].max_iter
-)
-print(
-    "Tolerance:",
-    check_pipeline.named_steps["model"].tol
-)
-
-
-
+# Train and save the search, or load the existing fitted search
 if RETRAIN_MODELS or not elastic_net_path.exists():
-    elastic_net_search = (
-        train_models.make_elastic_net_search(
-            random_state=RANDOM_STATE,
-            n_jobs=8
-        )
+    elastic_net_search = train_models.make_elastic_net_search(
+        random_state=RANDOM_STATE,
+        n_jobs=8
     )
 
-    _ = elastic_net_search.fit(
-        X_train_fe,
-        y_train
-    )
+    _ = elastic_net_search.fit(X_train_fe, y_train)
 
-    dump(
-        elastic_net_search,
-        elastic_net_path,
-        compress=3
-    )
+    dump(elastic_net_search, elastic_net_path, compress=3)
 
-    print("Elastic Net v2 trained and saved.")
+    print("Elastic Net trained and saved.")
 else:
-    elastic_net_search = load(
-        elastic_net_path
-    )
+    elastic_net_search = load(elastic_net_path)
+    print("Saved Elastic Net search loaded.")
 
-    print("Saved Elastic Net v2 search loaded.")
-
-
-    elastic_net_path = (
-    MODEL_DIR / "elastic_net_search_v2.joblib"
-)
-
-elastic_net_search = load(elastic_net_path)
 
 elastic_net_results = (
     pd.DataFrame(elastic_net_search.cv_results_)
@@ -1726,57 +1674,49 @@ elastic_net_results = (
         "mean_test_specificity",
     ]]
     .rename(columns={
-        "mean_train_roc_auc":
-            "mean_cv_train_roc_auc",
-        "mean_test_roc_auc":
-            "mean_cv_validation_roc_auc",
-        "std_test_roc_auc":
-            "std_cv_validation_roc_auc",
-        "mean_test_accuracy":
-            "mean_cv_validation_accuracy",
-        "mean_test_sensitivity":
-            "mean_cv_validation_sensitivity",
-        "mean_test_specificity":
-            "mean_cv_validation_specificity",
+        "mean_train_roc_auc": "mean_cv_train_roc_auc",
+        "mean_test_roc_auc": "mean_cv_validation_roc_auc",
+        "std_test_roc_auc": "std_cv_validation_roc_auc",
+        "mean_test_accuracy": "mean_cv_validation_accuracy",
+        "mean_test_sensitivity": "mean_cv_validation_sensitivity",
+        "mean_test_specificity": "mean_cv_validation_specificity",
     })
-    .sort_values(
-        "mean_cv_validation_roc_auc",
-        ascending=False
-    )
+    .sort_values("mean_cv_validation_roc_auc", ascending=False)
     .reset_index(drop=True)
 )
 
 display(
-    elastic_net_results
-    .iloc[0]
-    .to_frame(name="Best Elastic Net")
-    .round(4)
+    elastic_net_results.head(6)
+    .style
+    .format(precision=4)
+    .hide(axis="index")
 )
 
-best_model = (
-    elastic_net_search
-    .best_estimator_
-    .named_steps["model"]
-)
+print(f"Selected parameters: {elastic_net_search.best_params_}")
+print(f"Best mean CV ROC AUC: {elastic_net_search.best_score_:.4f}")
+print(f"Maximum iterations: {best_model.max_iter}")
+print(f"Iterations used: {best_model.n_iter_[0]}")
 
-print(
-    f"Best parameters: "
-    f"{elastic_net_search.best_params_}"
-)
-print(
-    f"Best mean CV ROC AUC: "
-    f"{elastic_net_search.best_score_:.4f}"
-)
-print(
-    f"Maximum iterations: "
-    f"{best_model.max_iter}"
-)
-print(
-    f"Iterations used by best model: "
-    f"{best_model.n_iter_[0]}"
-)
 ```
 
+
+
+The regularized logistic regression model was implemented as a pipeline with median imputation and standardization for numerical predictors, categorical encoding, and a penalized logistic regression estimator. Hyperparameter tuning varied the inverse regularization strength, (C), and the mixing parameter, l1_ratio. The expanded search grid included (C \in {0.01, 0.1, 1, 10, 100, 1000}) and l1_ratio values of 0, 0.2, 0.5, and 1.0.
+
+The parameter (C) controls the overall strength of regularization: smaller values impose stronger penalization, whereas larger values impose weaker penalization. The l1_ratio parameter controls the balance between L2 and L1 regularization. A value of 0 corresponds to pure L2 regularization, values between 0 and 1 represent an Elastic-Net mixture, and a value of 1 corresponds to pure L1 regularization.
+
+The best configuration selected by mean validation ROC AUC was:
+
+[ C = 100, l1_ratio = 1.00.]
+
+
+Because l1_ratio = 1.00 is the L1 endpoint, the selected model is more precisely described as an L1-regularized logistic regression rather than an interior Elastic-Net model.
+
+The selected model achieved a mean validation ROC AUC of 0.8516, with a validation AUC standard deviation of 0.0037 across the five folds. Its mean validation accuracy was 0.8028, while mean sensitivity and specificity were 0.5115 and 0.9134, respectively.
+
+The expanded grid showed that the largest values of (C) and several l1_ratio values produced nearly identical validation AUCs. Therefore, the model’s ranking performance was largely insensitive to the regularization settings within the tested range. The selected configuration was determined by very small numerical differences in cross-validation performance, rather than by a substantial advantage of the L1 penalty.
+
+The fitted estimator terminated after 354 iterations, below the maximum of 1,000 iterations. Thus, optimization did not stop because the iteration limit was reached.
 
 
 
@@ -1784,47 +1724,9 @@ print(
 ## Pruned Decision Tree
 
 ```{python}
-import src.train_models as train_models
-
-train_models = importlib.reload(train_models)
-
-decision_tree_path = (
-    MODEL_DIR / "decision_tree_search.joblib"
-)
-
-if RETRAIN_MODELS or not decision_tree_path.exists():
-    decision_tree_search = (
-        train_models.make_decision_tree_search(
-            random_state=RANDOM_STATE,
-            n_jobs=8
-        )
-    )
-
-    _ = decision_tree_search.fit(
-        X_train_fe,
-        y_train
-    )
-
-    dump(
-        decision_tree_search,
-        decision_tree_path,
-        compress=3
-    )
-
-    print("Decision Tree trained and saved.")
-else:
-    decision_tree_search = load(
-        decision_tree_path
-    )
-
-    print("Saved Decision Tree search loaded.")
-
-
 
 decision_tree_results = (
-    pd.DataFrame(
-        decision_tree_search.cv_results_
-    )
+    pd.DataFrame(decision_tree_search.cv_results_)
     [[
         "param_model__max_depth",
         "param_model__min_samples_leaf",
@@ -1837,26 +1739,23 @@ decision_tree_results = (
         "mean_test_specificity",
     ]]
     .rename(columns={
-        "mean_train_roc_auc":
-            "mean_cv_train_roc_auc",
-        "mean_test_roc_auc":
-            "mean_cv_validation_roc_auc",
-        "std_test_roc_auc":
-            "std_cv_validation_roc_auc",
-        "mean_test_accuracy":
-            "mean_cv_validation_accuracy",
-        "mean_test_sensitivity":
-            "mean_cv_validation_sensitivity",
-        "mean_test_specificity":
-            "mean_cv_validation_specificity",
+        "mean_train_roc_auc": "mean_cv_train_roc_auc",
+        "mean_test_roc_auc": "mean_cv_validation_roc_auc",
+        "std_test_roc_auc": "std_cv_validation_roc_auc",
+        "mean_test_accuracy": "mean_cv_validation_accuracy",
+        "mean_test_sensitivity": "mean_cv_validation_sensitivity",
+        "mean_test_specificity": "mean_cv_validation_specificity",
     })
-    .sort_values(
-        "mean_cv_validation_roc_auc",
-        ascending=False
-    )
+    .sort_values("mean_cv_validation_roc_auc", ascending=False)
     .reset_index(drop=True)
 )
 
+display(
+    decision_tree_results.head(5)
+    .style
+    .format(precision=4)
+    .hide(axis="index")
+)
 
 best_tree = (
     decision_tree_search
@@ -1864,32 +1763,23 @@ best_tree = (
     .named_steps["model"]
 )
 
-display(
-    decision_tree_results
-    .iloc[0]
-    .to_frame(name="Best Decision Tree")
-    .round(4)
-)
-
-print(
-    f"Best parameters: "
-    f"{decision_tree_search.best_params_}"
-)
-print(
-    f"Best mean CV ROC AUC: "
-    f"{decision_tree_search.best_score_:.4f}"
-)
-print(
-    f"Final tree depth: "
-    f"{best_tree.get_depth()}"
-)
-print(
-    f"Final number of leaves: "
-    f"{best_tree.get_n_leaves()}"
-)
+print(f"Best parameters: {decision_tree_search.best_params_}")
+print(f"Best mean CV ROC AUC: {decision_tree_search.best_score_:.4f}")
+print(f"Final tree depth: {best_tree.get_depth()}")
+print(f"Final number of leaves: {best_tree.get_n_leaves()}")
 ```
 
+The decision tree search varied `max_depth`, `min_samples_leaf`, and `ccp_alpha`. These parameters were selected because they directly control the complexity of the tree. `max_depth` limits the maximum number of splitting levels, `min_samples_leaf` prevents leaves from being formed from very small groups of observations, and `ccp_alpha` controls cost-complexity pruning.
 
+The selected configuration was:
+
+max_depth = None
+min_samples_leaf = 20
+ccp_alpha = 0.0001
+
+Although the maximum depth was not explicitly bounded, the minimum leaf size and positive pruning parameter constrained the fitted tree. The final fitted tree had depth 18 and 156 leaves. Its mean validation ROC AUC was 0.8777, with a standard deviation of 0.0031. The mean validation accuracy was 0.8232, while the mean sensitivity and specificity were 0.6056 and 0.9058.
+
+This model provided a nonlinear baseline while retaining a relatively interpretable tree structure. The difference between its training and validation AUC was smaller than that of the ensemble models, suggesting less overfitting but also lower predictive performance.
 
 
 
@@ -1899,7 +1789,6 @@ print(
 ```{python}
 import src.train_models as train_models
 
-train_models = importlib.reload(train_models)
 
 random_forest_path = (
     MODEL_DIR / "random_forest_search.joblib"
@@ -1951,32 +1840,25 @@ random_forest_results = (
         "mean_test_specificity",
     ]]
     .rename(columns={
-        "mean_train_roc_auc":
-            "mean_cv_train_roc_auc",
-        "mean_test_roc_auc":
-            "mean_cv_validation_roc_auc",
-        "std_test_roc_auc":
-            "std_cv_validation_roc_auc",
-        "mean_test_accuracy":
-            "mean_cv_validation_accuracy",
-        "mean_test_sensitivity":
-            "mean_cv_validation_sensitivity",
-        "mean_test_specificity":
-            "mean_cv_validation_specificity",
+        "mean_train_roc_auc": "mean_cv_train_roc_auc",
+        "mean_test_roc_auc": "mean_cv_validation_roc_auc",
+        "std_test_roc_auc": "std_cv_validation_roc_auc",
+        "mean_test_accuracy": "mean_cv_validation_accuracy",
+        "mean_test_sensitivity": "mean_cv_validation_sensitivity",
+        "mean_test_specificity": "mean_cv_validation_specificity",
     })
-    .sort_values(
-        "mean_cv_validation_roc_auc",
-        ascending=False
-    )
+    .sort_values("mean_cv_validation_roc_auc", ascending=False)
     .reset_index(drop=True)
 )
 
 display(
-    random_forest_results
-    .iloc[0]
-    .to_frame(name="Best Random Forest")
-    .round(4)
+    random_forest_results.head(5)
+    .style
+    .format(precision=4)
+    .hide(axis="index")
 )
+
+
 
 best_forest = (
     random_forest_search
@@ -2012,59 +1894,18 @@ print(
 ```
 
 
+The random forest search varied `max_depth`, `min_samples_leaf`, and `max_features`. These parameters control the complexity of each individual tree and the amount of feature randomization used when creating the ensemble. The number of trees was fixed at 300 to provide a sufficiently stable ensemble while keeping the search computationally manageable.
 
-```{python}
-rf_review = random_forest_results.copy()
+The selected configuration was:
 
-rf_review["train_validation_gap"] = (
-    rf_review["mean_cv_train_roc_auc"]
-    - rf_review["mean_cv_validation_roc_auc"]
-)
+n_estimators = 300
+max_depth = 22
+min_samples_leaf = 5
+max_features = 0.30
 
-best_mean = (
-    rf_review["mean_cv_validation_roc_auc"].max()
-)
+The maximum depth and minimum leaf size regulate the complexity of each tree. The max_features value means that each split considers a random subset containing approximately 30% of the available predictors, which increases diversity among the trees.
 
-best_std = (
-    rf_review.loc[
-        rf_review[
-            "mean_cv_validation_roc_auc"
-        ].idxmax(),
-        "std_cv_validation_roc_auc"
-    ]
-)
-
-best_se = best_std / np.sqrt(CV_FOLDS)
-one_se_cutoff = best_mean - best_se
-
-rf_review["within_one_se"] = (
-    rf_review["mean_cv_validation_roc_auc"]
-    >= one_se_cutoff
-)
-
-display(
-    rf_review[
-        [
-            "param_model__max_depth",
-            "param_model__min_samples_leaf",
-            "param_model__max_features",
-            "mean_cv_train_roc_auc",
-            "mean_cv_validation_roc_auc",
-            "train_validation_gap",
-            "std_cv_validation_roc_auc",
-            "within_one_se",
-        ]
-    ]
-    .head(12)
-    .round(4)
-)
-
-print(f"Best CV AUC: {best_mean:.4f}")
-print(f"One-SE cutoff: {one_se_cutoff:.4f}")
-
-```
-
-
+The random forest achieved a mean validation ROC AUC of 0.9000 with a standard deviation of 0.0024. Its mean validation accuracy was 0.8382, with sensitivity of 0.6275 and specificity of 0.9181. The training AUC was 0.9630, producing a train-validation gap of approximately 0.0631. This gap indicates some overfitting, although the validation performance was substantially stronger than that of the linear and single-tree models.
 
 
 ## XG-Boost
@@ -2072,14 +1913,8 @@ print(f"One-SE cutoff: {one_se_cutoff:.4f}")
 ```{python}
 
 import src.train_models as train_models
-
-# Reload the module to use the latest XGBoost functions
-train_models = importlib.reload(train_models)
-
 # Save the performance-oriented XGBoost search separately
-xgboost_path = (
-    MODEL_DIR / "xgboost_search_v2.joblib"
-)
+xgboost_path = (MODEL_DIR / "xgboost_search_v2.joblib")
 
 if RETRAIN_MODELS or not xgboost_path.exists():
     xgboost_search = (
@@ -2090,23 +1925,12 @@ if RETRAIN_MODELS or not xgboost_path.exists():
     )
 
     # Tune using training data only
-    _ = xgboost_search.fit(
-        X_train_fe,
-        y_train
-    )
+    _ = xgboost_search.fit(X_train_fe, y_train)
 
-    dump(
-        xgboost_search,
-        xgboost_path,
-        compress=3
-    )
-
+    dump(xgboost_search, xgboost_path, compress=3)
     print("XGBoost trained and saved.")
 else:
-    xgboost_search = load(
-        xgboost_path
-    )
-
+    xgboost_search = load(xgboost_path)
     print("Saved XGBoost search loaded.")
 
 
@@ -2130,18 +1954,12 @@ xgboost_results = (
         "mean_test_specificity",
     ]]
     .rename(columns={
-        "mean_train_roc_auc":
-            "mean_cv_train_roc_auc",
-        "mean_test_roc_auc":
-            "mean_cv_validation_roc_auc",
-        "std_test_roc_auc":
-            "std_cv_validation_roc_auc",
-        "mean_test_accuracy":
-            "mean_cv_validation_accuracy",
-        "mean_test_sensitivity":
-            "mean_cv_validation_sensitivity",
-        "mean_test_specificity":
-            "mean_cv_validation_specificity",
+        "mean_train_roc_auc": "mean_cv_train_roc_auc",
+        "mean_test_roc_auc": "mean_cv_validation_roc_auc",
+        "std_test_roc_auc": "std_cv_validation_roc_auc",
+        "mean_test_accuracy": "mean_cv_validation_accuracy",
+        "mean_test_sensitivity": "mean_cv_validation_sensitivity",
+        "mean_test_specificity": "mean_cv_validation_specificity",
     })
     .sort_values(
         "mean_cv_validation_roc_auc",
@@ -2151,31 +1969,20 @@ xgboost_results = (
 )
 
 
-# Display only the best parameter combination
+
 display(
-    xgboost_results
-    .iloc[0]
-    .to_frame(name="Best XGBoost")
-    .round(4)
+    xgboost_results.head(5)
+    .style.format(precision=4)
+    .hide(axis="index")
 )
 
 
 # Extract the fitted best model
-best_xgboost = (
-    xgboost_search
-    .best_estimator_
-    .named_steps["model"]
-)
-
+best_xgboost = xgboost_search.best_estimator_.named_steps["model"]
 best_xgboost_row = xgboost_results.iloc[0]
-
 xgboost_gap = (
-    best_xgboost_row["mean_cv_train_roc_auc"]
-    - best_xgboost_row[
-        "mean_cv_validation_roc_auc"
-    ]
+    best_xgboost_row["mean_cv_train_roc_auc"] - best_xgboost_row["mean_cv_validation_roc_auc"]
 )
-
 
 print(
     f"Best parameters: "
@@ -2195,40 +2002,32 @@ print(
 )
 ```
 
+
+
+
 ```{python}
+
 xgboost_review = xgboost_results.copy()
 
 xgboost_review["train_validation_gap"] = (
     xgboost_review["mean_cv_train_roc_auc"]
-    - xgboost_review[
-        "mean_cv_validation_roc_auc"
-    ]
+    - xgboost_review["mean_cv_validation_roc_auc"]
 )
 
-best_mean = (
-    xgboost_review[
-        "mean_cv_validation_roc_auc"
-    ].max()
-)
+best_index = xgboost_review["mean_cv_validation_roc_auc"].idxmax()
 
-best_std = (
-    xgboost_review.loc[
-        xgboost_review[
-            "mean_cv_validation_roc_auc"
-        ].idxmax(),
-        "std_cv_validation_roc_auc"
-    ]
-)
+best_mean = xgboost_review.loc[
+    best_index, "mean_cv_validation_roc_auc"
+]
 
-one_se_cutoff = (
-    best_mean
-    - best_std / np.sqrt(CV_FOLDS)
-)
+best_std = xgboost_review.loc[
+    best_index, "std_cv_validation_roc_auc"
+]
+
+one_se_cutoff = best_mean - best_std / np.sqrt(CV_FOLDS)
 
 xgboost_review["within_one_se"] = (
-    xgboost_review[
-        "mean_cv_validation_roc_auc"
-    ] >= one_se_cutoff
+    xgboost_review["mean_cv_validation_roc_auc"] >= one_se_cutoff
 )
 
 display(
@@ -2238,6 +2037,7 @@ display(
             "param_model__max_depth",
             "param_model__learning_rate",
             "param_model__min_child_weight",
+            "param_model__subsample",
             "param_model__colsample_bytree",
             "mean_cv_train_roc_auc",
             "mean_cv_validation_roc_auc",
@@ -2246,13 +2046,18 @@ display(
             "within_one_se",
         ]
     ]
-    .head(15)
+    .head(5)
     .round(4)
 )
 
 print(f"Best CV AUC: {best_mean:.4f}")
 print(f"One-SE cutoff: {one_se_cutoff:.4f}")
+
 ```
+
+
+The review shows that the third-ranked configuration achieves a validation AUC of 0.9010, within one standard error of the highest score of 0.9016, while reducing the training–validation gap from 0.0597 to 0.0351. We therefore select this configuration as a trade-off between near-best validation performance and a smaller training–validation gap.
+
 
 ```{python}
 selected_xgboost_params = {
@@ -2304,34 +2109,22 @@ else:
 selected_xgboost_result = (
     xgboost_results.loc[
         (
-            xgboost_results[
-                "param_model__n_estimators"
-            ] == 800
+            xgboost_results["param_model__n_estimators"] == 800
         )
         & (
-            xgboost_results[
-                "param_model__max_depth"
-            ] == 7
+            xgboost_results["param_model__max_depth"] == 7
         )
         & (
-            xgboost_results[
-                "param_model__learning_rate"
-            ] == 0.03
+            xgboost_results["param_model__learning_rate"] == 0.03
         )
         & (
-            xgboost_results[
-                "param_model__min_child_weight"
-            ] == 3
+            xgboost_results["param_model__min_child_weight"] == 3
         )
         & (
-            xgboost_results[
-                "param_model__subsample"
-            ] == 0.8
+            xgboost_results["param_model__subsample"] == 0.8
         )
         & (
-            xgboost_results[
-                "param_model__colsample_bytree"
-            ] == 0.7
+            xgboost_results["param_model__colsample_bytree"] == 0.7
         )
     ]
     .iloc[0]
@@ -2346,7 +2139,24 @@ display(
 ```
 
 
+The XGBoost search varied six parameters: `n_estimators`, `max_depth`, `learning_rate`, `min_child_weight`, `subsample`, and `colsample_bytree`.
 
+`n_estimators` controls the number of boosting rounds, while `learning_rate` controls the contribution of each individual tree. `max_depth` and `min_child_weight` regulate the complexity of the individual trees and the minimum amount of information required for additional splitting. `subsample` controls the fraction of training observations used for each boosting round, and `colsample_bytree` controls the fraction of predictors used by each tree.
+
+The selected XGBoost configuration was:
+
+n_estimators = 800
+max_depth = 7
+learning_rate = 0.03
+min_child_weight = 3
+subsample = 0.80
+colsample_bytree = 0.70
+
+This configuration used a relatively large number of shallow-to-moderate-depth trees with a small learning rate. Row and column subsampling added regularization and reduced dependence among individual trees.
+
+The selected configuration achieved a mean validation ROC AUC of 0.9010 with a standard deviation of 0.0026. Its mean validation accuracy was 0.8382, sensitivity was 0.6346, and specificity was 0.9156. The training AUC was 0.9361, giving a train-validation gap of approximately 0.0351.
+
+Another XGBoost configuration produced a slightly higher validation ROC AUC of approximately 0.9016, but it had a substantially larger train-validation gap of approximately 0.0597. The selected configuration was therefore retained as a practical trade-off between validation discrimination and the degree of overfitting, rather than selecting solely on the highest fourth-decimal-place AUC.
 
 ## QDA
 
@@ -2449,10 +2259,16 @@ print(
 ```
 
 
+Regularized quadratic discriminant analysis was included as a parametric contrast to the tree-based models. Only reg_param was varied, which shrinks each class covariance matrix toward a scaled identity. The selected value was: reg_param = 0.05. This regularized QDA model achieved a mean validation ROC AUC of 0.8267 with a standard deviation of 0.0037. Its mean validation accuracy was 0.7171, sensitivity was 0.8148, and specificity was 0.6799.
+ Two of the model's assumptions are not satisfied by this design matrix. Most of the 134 transformed predictors are one-hot indicators rather than continuous variables, so the within-class multivariate normality assumption does not hold; and because the encoder retains all levels of each categorical predictor, the columns within each group are linearly dependent, making the unregularized class covariance matrices singular. The regularization parameter is what makes estimation feasible here, and the resulting performance should be read with these violations in mind.
 
 
 
 
+
+
+
+## CV Summary 
 
 ```{python}
 def make_cv_summary_row(model_name, result_row):
@@ -2549,12 +2365,6 @@ display(
 
 
 
-
-
-
-
-
-
 ```{python}
 final_models = {
     "Elastic Net": (
@@ -2566,7 +2376,9 @@ final_models = {
     "Random Forest": (
         random_forest_search.best_estimator_
     ),
-    "XGBoost": selected_xgboost_result,
+    "XGBoost": (
+        selected_xgboost
+    ),
     "Regularized QDA": (
         qda_search.best_estimator_
     ),
@@ -2580,3 +2392,71 @@ for model_name in final_models:
 
 CLASSIFICATION_THRESHOLD = 0.50
 ```
+
+XGBoost had the highest validation ROC AUC among the selected configurations, followed closely by the random forest. The two ensemble models also produced the strongest overall accuracy and balanced sensitivity-specificity profiles. The final models were then locked before evaluating them once on the held-out test set.
+
+
+
+
+
+
+# Evaluation
+
+
+```{python}
+import src.evaluation as evaluation
+
+importlib.reload(evaluation)
+
+from src.evaluation import (
+    evaluate_models,
+    compare_cv_and_test,
+    plot_roc_curves,
+    plot_precision_recall_curves,
+    make_confusion_table,
+    get_model_importance,
+    get_permutation_importance,
+    threshold_sweep,
+)
+
+
+test_results = evaluate_models(
+    final_models,
+    X_test_fe,
+    y_test,
+    threshold=CLASSIFICATION_THRESHOLD
+)
+
+display(
+    test_results
+    .drop(columns=[
+        "true_negatives",
+        "false_positives",
+        "false_negatives",
+        "true_positives",
+    ])
+    .style
+    .format(precision=4, subset=test_results.columns[1:])
+    .hide(axis="index")
+)
+
+# 交叉验证与测试表现是否一致
+display(
+    compare_cv_and_test(cv_comparison, test_results)
+    .style
+    .format(precision=4, subset=["cv_roc_auc", "test_roc_auc", "cv_test_gap"])
+    .hide(axis="index")
+)
+
+plot_roc_curves(final_models, X_test_fe, y_test)
+plt.show()
+
+plot_precision_recall_curves(final_models, X_test_fe, y_test)
+plt.show()
+
+
+
+```
+
+
+

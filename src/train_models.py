@@ -42,7 +42,7 @@ def make_elastic_net_pipeline(random_state):
 
     model = LogisticRegression(
         solver="saga",
-        max_iter=10000,
+        max_iter=1000,
         tol=1e-3,
         random_state=random_state
     )
@@ -59,8 +59,8 @@ def make_elastic_net_search(random_state, n_jobs=4):
     pipeline = make_elastic_net_pipeline(random_state)
 
     param_grid = {
-        "model__C": [0.01, 0.1, 1, 10],
-        "model__l1_ratio": [0.0, 0.5, 1.0],
+        "model__C": [0.01, 0.1, 1, 10, 100, 1000],
+        "model__l1_ratio": [0.0, 0.2, 0.5, 1.0],
     }
 
     return GridSearchCV(
