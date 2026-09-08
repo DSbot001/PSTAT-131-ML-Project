@@ -131,8 +131,7 @@ def make_preprocessor(scale_numeric=True):
         numeric_steps.append(("scaler", StandardScaler()))
     numeric_pipeline = Pipeline(numeric_steps)
 
-
-
+ 
     # Impute missing binary values without changing their 0/1 interpretation
     binary_pipeline = Pipeline([
         ("imputer", SimpleImputer(strategy="most_frequent"))

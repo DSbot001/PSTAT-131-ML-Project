@@ -9,7 +9,7 @@ PERMANENT_LEAKAGE_COLUMNS = [
     "reservation_status_date",
 ]
 
-# # Variables unavailable when the booking is initially created
+# Variables unavailable when the booking is initially created
 POST_BOOKING_COLUMNS = [
     "assigned_room_type",
     "booking_changes",
@@ -18,7 +18,7 @@ POST_BOOKING_COLUMNS = [
 ]
 
 
-# Parking variables excluded because they completely separate the training outcome
+# Variables retained for sensitivity analysis but unavailable at booking time
 SEPARATION_SUSPECT_COLUMNS = [
     "required_car_parking_spaces", # Original parking-space request count
     "has_parking_request",         # Binary indicator of any parking-space request 
@@ -67,10 +67,11 @@ MONTH_TO_NUMBER = {
 
 
 
-"""Add deterministic booking-level features without selecting predictors."""
+
 
 def engineer_features(df):
-    
+    """Add deterministic booking-level features without selecting predictors."""
+
     data = df.copy()
 
     # Prevent the response variable from entering feature engineering
@@ -158,7 +159,7 @@ def engineer_features(df):
 
 
 
-    'Create intersection binary indicators for non-refundable bookings in specific market segments ------ Groups and Offline TA/TO.'
+    # Create interaction binary indicators for non-refundable bookings in specific market segments ------ Groups and Offline TA/TO.
 
     data["non_refund_groups"] = (data["deposit_type"].eq("Non Refund")& data["market_segment"].eq("Groups")).astype("int8")
 
@@ -270,6 +271,22 @@ def validate_engineered_features(original, engineered):
 
     # Confirm that no unintended cancellation bucket was created
     assert bucket_levels <= {"0", "1", "2+"}
+
+
+
+    # Confirm that the weekend-night ratio remains within its valid range
+    ratio = engineered["weekend_night_ratio"].dropna()
+    assert ratio.between(0, 1).all()
+
+    # Confirm that the ratio is missing exactly when adjusted total nights
+    # are missing or nonpositive
+    expected_ratio_missing = (
+        engineered["total_nights_adj"].isna()| engineered["total_nights_adj"].le(0)
+    )
+
+    assert engineered["weekend_night_ratio"].isna().equals(
+        expected_ratio_missing
+    )
 
 
 
