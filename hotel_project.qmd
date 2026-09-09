@@ -2271,7 +2271,7 @@ XGBoost had the highest validation ROC AUC among the selected configurations, fo
 
 
 ```{python}
-CLASSIFICATION_THRESHOLD = 0.50
+
 import src.evaluation as evaluation
 
 importlib.reload(evaluation)
@@ -2287,44 +2287,97 @@ from src.evaluation import (
     threshold_sweep,
 )
 
+CLASSIFICATION_THRESHOLD = 0.50
 
 test_results = evaluate_models(
     final_models,
     X_test_fe,
     y_test,
-    threshold=CLASSIFICATION_THRESHOLD
+    threshold=CLASSIFICATION_THRESHOLD,
 )
 
 display(
+    test_results.drop(
+        columns=[
+            "true_negatives",
+            "false_positives",
+            "false_negatives",
+            "true_positives",
+        ]
+    )
+    .style
+    .format(precision=4)
+    .hide(axis="index")
+)
+
+
+cv_test_comparison = compare_cv_and_test(
+    cv_comparison,
     test_results
-    .drop(columns=[
-        "true_negatives",
-        "false_positives",
-        "false_negatives",
-        "true_positives",
-    ])
-    .style
-    .format(precision=4, subset=test_results.columns[1:])
-    .hide(axis="index")
 )
 
-# 交叉验证与测试表现是否一致
 display(
-    compare_cv_and_test(cv_comparison, test_results)
+    cv_test_comparison
     .style
-    .format(precision=4, subset=["cv_roc_auc", "test_roc_auc", "cv_test_gap"])
+    .format(precision=4)
     .hide(axis="index")
 )
 
-plot_roc_curves(final_models, X_test_fe, y_test)
+
+plot_roc_curves(
+    final_models,
+    X_test_fe,
+    y_test
+)
 plt.show()
 
-plot_precision_recall_curves(final_models, X_test_fe, y_test)
+plot_precision_recall_curves(
+    final_models,
+    X_test_fe,
+    y_test
+)
 plt.show()
 
 
+xgboost_confusion = make_confusion_table(
+    final_models["XGBoost"],
+    X_test_fe,
+    y_test,
+    threshold=CLASSIFICATION_THRESHOLD,
+)
 
+display(xgboost_confusion)
+
+
+xgboost_importance = get_model_importance(
+    final_models["XGBoost"],
+    top_n=20
+)
+
+display(
+    xgboost_importance
+    .style
+    .format(precision=4)
+    .hide(axis="index")
+)
+
+xgboost_permutation = get_permutation_importance(
+    final_models["XGBoost"],
+    X_test_fe,
+    y_test,
+    random_state=RANDOM_STATE,
+    n_repeats=5,
+    n_jobs=1,
+    top_n=15
+)
+
+display(
+    xgboost_permutation
+    .style
+    .format(precision=4)
+    .hide(axis="index")
+)
 ```
 
-
+Permutation importance identified country, agent, log-transformed lead time, arrival year, market segment, total special requests, and customer type as the most influential original predictors for XGBoost. Shuffling country produced the largest average ROC AUC decrease (0.1330), followed by agent (0.0947) and log-transformed lead time (0.0693). These values indicate predictive usefulness rather than causal effects; the importance of country and agent may partly reflect missingness and booking-channel patterns.
 
