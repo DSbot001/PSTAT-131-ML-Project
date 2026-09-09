@@ -37,6 +37,8 @@ def make_cv(random_state):
     )
 
 
+#Elastic Net Logistic Regression
+
 def make_elastic_net_pipeline(random_state):
     """Create the preprocessing and Elastic Net logistic pipeline."""
 
@@ -76,6 +78,9 @@ def make_elastic_net_search(random_state, n_jobs=4):
     )
 
 
+
+# Decision Tree
+
 def make_decision_tree_pipeline(random_state):
     """Create the preprocessing and decision tree pipeline."""
 
@@ -84,10 +89,7 @@ def make_decision_tree_pipeline(random_state):
     )
 
     return Pipeline([
-        (
-            "preprocessor",
-            make_preprocessor(scale_numeric=False)
-        ),
+        ("preprocessor", make_preprocessor(scale_numeric=False)),
         ("model", model)
     ])
 
@@ -98,28 +100,12 @@ def make_decision_tree_search(
 ):
     """Create the pruned decision tree cross-validation search."""
 
-    pipeline = make_decision_tree_pipeline(
-        random_state
-    )
+    pipeline = make_decision_tree_pipeline(random_state)
 
     param_grid = {
-        "model__max_depth": [
-            4,
-            6,
-            8,
-            None
-        ],
-        "model__min_samples_leaf": [
-            20,
-            100,
-            300
-        ],
-        "model__ccp_alpha": [
-            0.0,
-            0.00001,
-            0.0001,
-            0.001
-        ],
+        "model__max_depth": [4, 6, 8, None],
+        "model__min_samples_leaf": [20, 100, 300],
+        "model__ccp_alpha": [0.0, 0.00001, 0.0001, 0.001],
     }
 
     return GridSearchCV(
@@ -147,10 +133,7 @@ def make_random_forest_pipeline(random_state):
     )
 
     return Pipeline([
-        (
-            "preprocessor",
-            make_preprocessor(scale_numeric=False)
-        ),
+        ("preprocessor", make_preprocessor(scale_numeric=False)),
         ("model", model)
     ])
 
@@ -166,22 +149,9 @@ def make_random_forest_search(
     )
 
     param_grid = {
-        "model__max_depth": [
-            10,
-            14,
-            18,
-            22
-        ],
-        "model__min_samples_leaf": [
-            5,
-            10,
-            20,
-            50
-        ],
-        "model__max_features": [
-            "sqrt",
-            0.3
-        ],
+        "model__max_depth": [10, 14, 18, 22],
+        "model__min_samples_leaf": [5, 10, 20, 50],
+        "model__max_features": ["sqrt", 0.3],
     }
 
     return GridSearchCV(
@@ -212,10 +182,7 @@ def make_xgboost_pipeline(random_state):
     )
 
     return Pipeline([
-        (
-            "preprocessor",
-            make_preprocessor(scale_numeric=False)
-        ),
+        ("preprocessor", make_preprocessor(scale_numeric=False)),
         ("model", model)
     ])
 
@@ -231,30 +198,12 @@ def make_xgboost_search(
     )
 
     param_grid = {
-        "model__n_estimators": [
-            400,
-            800
-        ],
-        "model__max_depth": [
-            3,
-            5,
-            7
-        ],
-        "model__learning_rate": [
-            0.03,
-            0.06
-        ],
-        "model__min_child_weight": [
-            3,
-            10
-        ],
-        "model__subsample": [
-            0.8
-        ],
-        "model__colsample_bytree": [
-            0.7,
-            0.9
-        ],
+        "model__n_estimators": [400, 800],
+        "model__max_depth": [3, 5, 7],
+        "model__learning_rate": [0.03, 0.06],
+        "model__min_child_weight": [3, 10],
+        "model__subsample": [0.8],
+        "model__colsample_bytree": [0.7, 0.9],
     }
 
     return GridSearchCV(
@@ -286,13 +235,8 @@ def make_qda_pipeline():
     model = QuadraticDiscriminantAnalysis()
 
     return Pipeline([
-        (
-            "preprocessor",
-            make_preprocessor(scale_numeric=True)
-        ),
-        (
-            "to_dense",
-            FunctionTransformer(
+        ("preprocessor",make_preprocessor(scale_numeric=True)),
+        ("to_dense",FunctionTransformer(
                 to_dense_matrix,
                 accept_sparse=True
             )
@@ -307,15 +251,7 @@ def make_qda_search(random_state, n_jobs=4):
     pipeline = make_qda_pipeline()
 
     param_grid = {
-        "model__reg_param": [
-            0.01,
-            0.05,
-            0.10,
-            0.20,
-            0.40,
-            0.60,
-            0.80
-        ],
+        "model__reg_param": [0.01, 0.05, 0.10, 0.20, 0.40, 0.60, 0.80],
     }
 
     return GridSearchCV(
