@@ -2280,7 +2280,6 @@ from src.evaluation import (
     evaluate_models,
     compare_cv_and_test,
     plot_roc_curves,
-    plot_precision_recall_curves,
     make_confusion_table,
     get_model_importance,
     get_permutation_importance,
@@ -2331,12 +2330,7 @@ plot_roc_curves(
 )
 plt.show()
 
-plot_precision_recall_curves(
-    final_models,
-    X_test_fe,
-    y_test
-)
-plt.show()
+
 
 
 xgboost_confusion = make_confusion_table(
