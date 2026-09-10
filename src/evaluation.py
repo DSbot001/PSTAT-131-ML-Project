@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
-    brier_score_loss,
     confusion_matrix,
     f1_score,
     precision_recall_curve,
@@ -27,7 +26,6 @@ DEFAULT_THRESHOLD = 0.50
 PROBABILITY_METRICS = [
     "roc_auc",
     "pr_auc",
-    "brier_score",
 ]
 
 # Metrics that depend on the chosen classification threshold
@@ -62,17 +60,25 @@ def validate_evaluation_inputs(models, X, y):
                 f"`{name}` is not a fitted classifier: {type(model).__name__}"
             )
 
+        try:
+            check_is_fitted(model)
+        except NotFittedError as error:
+            raise NotFittedError(f"{name} has not been fitted.") from error
 
+        if set(model.classes_) != {0, 1}:
+            raise ValueError(f"{name} must use classes 0 and 1.")
 
 
 def predict_probabilities(model, X):
     """Return predicted cancellation probabilities from a fitted pipeline."""
 
-    probabilities = model.predict_proba(X)[:, 1]
+    positive_column = list(model.classes_).index(1)
+    probabilities = model.predict_proba(X)[:, positive_column]
 
     # Confirm that the pipeline produced one usable probability per observation
     assert probabilities.shape == (len(X),)
     assert np.isfinite(probabilities).all()
+    assert ((probabilities >= 0) & (probabilities <= 1)).all()
 
     return probabilities
 
@@ -82,6 +88,10 @@ def predict_probabilities(model, X):
 def evaluate_model(model, X, y, threshold=DEFAULT_THRESHOLD):
     """Compute threshold-free and threshold-based metrics for one fitted model."""
 
+    validate_evaluation_inputs({"model": model}, X, y)
+    if not 0 <= threshold <= 1:
+        raise ValueError("threshold must be between 0 and 1.")
+
     probabilities = predict_probabilities(model, X)
     predictions = (probabilities >= threshold).astype(int)
 
@@ -90,10 +100,10 @@ def evaluate_model(model, X, y, threshold=DEFAULT_THRESHOLD):
     )
 
     return {
-        # Threshold-free measures of ranking quality and calibration
+        # Threshold-free measures of ranking quality
         "roc_auc": roc_auc_score(y, probabilities),
+        # This column reports Average Precision (AP).
         "pr_auc": average_precision_score(y, probabilities),
-        "brier_score": brier_score_loss(y, probabilities),
 
         # Measures that depend on the chosen threshold
         "accuracy": accuracy_score(y, predictions),
@@ -156,7 +166,14 @@ def compare_cv_and_test(cv_comparison, test_results):
         ["model", "roc_auc"]
     ].rename(columns={"roc_auc": "test_roc_auc"})
 
-    comparison = cv_columns.merge(test_columns, on="model", how="inner")
+    if cv_columns["model"].isna().any() or test_columns["model"].isna().any():
+        raise ValueError("Model names must not be missing.")
+    if set(cv_columns["model"]) != set(test_columns["model"]):
+        raise ValueError("CV and test results must contain the same model names.")
+
+    comparison = cv_columns.merge(
+        test_columns, on="model", how="inner", validate="one_to_one"
+    )
 
     # Confirm that no model was lost or duplicated by the merge
     assert len(comparison) == len(cv_columns) == len(test_columns)
@@ -254,6 +271,10 @@ def plot_precision_recall_curves(models, X, y, figsize=(7, 6)):
 def make_confusion_table(model, X, y, threshold=DEFAULT_THRESHOLD):
     """Return a labeled confusion matrix for one fitted model."""
 
+    validate_evaluation_inputs({"model": model}, X, y)
+    if not 0 <= threshold <= 1:
+        raise ValueError("threshold must be between 0 and 1.")
+
     probabilities = predict_probabilities(model, X)
     predictions = (probabilities >= threshold).astype(int)
 
@@ -290,12 +311,12 @@ def get_model_importance(pipeline, top_n=20):
     model = pipeline.named_steps["model"]
     names = get_feature_names(pipeline)
 
-    # Tree-based models expose impurity-based importances
+    # Use the tree model built-in importance measure
     if hasattr(model, "feature_importances_"):
         values = np.asarray(model.feature_importances_)
         value_column = "importance"
 
-    # Linear models expose signed coefficients on the standardized scale
+    # Linear models expose signed coefficients for transformed predictors
     elif hasattr(model, "coef_"):
         values = np.asarray(model.coef_).ravel()
         value_column = "coefficient"
@@ -366,7 +387,9 @@ def get_permutation_importance(
 
 
 def threshold_sweep(model, X, y, thresholds=None):
-    """Describe how threshold-based metrics change across candidate cutoffs."""
+    """Describe cutoff trade-offs; select cutoffs using validation data only."""
+
+    validate_evaluation_inputs({"model": model}, X, y)
 
     if thresholds is None:
         thresholds = np.round(np.arange(0.20, 0.85, 0.05), 2)
@@ -376,6 +399,8 @@ def threshold_sweep(model, X, y, thresholds=None):
     rows = []
 
     for threshold in thresholds:
+        if not 0 <= threshold <= 1:
+            raise ValueError("thresholds must be between 0 and 1.")
         predictions = (probabilities >= threshold).astype(int)
 
         true_negatives, false_positives, false_negatives, true_positives = (
