@@ -5,10 +5,8 @@ import matplotlib.pyplot as plt
 
 from sklearn.metrics import (
     accuracy_score,
-    average_precision_score,
     confusion_matrix,
     f1_score,
-    precision_recall_curve,
     precision_score,
     recall_score,
     roc_auc_score,
@@ -25,7 +23,6 @@ DEFAULT_THRESHOLD = 0.50
 # Threshold-free metrics reported alongside the threshold-based diagnostics
 PROBABILITY_METRICS = [
     "roc_auc",
-    "pr_auc",
 ]
 
 # Metrics that depend on the chosen classification threshold
@@ -102,8 +99,6 @@ def evaluate_model(model, X, y, threshold=DEFAULT_THRESHOLD):
     return {
         # Threshold-free measures of ranking quality
         "roc_auc": roc_auc_score(y, probabilities),
-        # This column reports Average Precision (AP).
-        "pr_auc": average_precision_score(y, probabilities),
 
         # Measures that depend on the chosen threshold
         "accuracy": accuracy_score(y, predictions),
@@ -220,46 +215,6 @@ def plot_roc_curves(models, X, y, figsize=(7, 6)):
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.legend(loc="lower right", fontsize=9)
-
-    plt.tight_layout()
-
-    return ax
-
-
-
-
-def plot_precision_recall_curves(models, X, y, figsize=(7, 6)):
-    """Plot test-set precision-recall curves for every fitted model."""
-
-    validate_evaluation_inputs(models, X, y)
-
-    figure, ax = plt.subplots(figsize=figsize)
-
-    for name, model in models.items():
-        probabilities = predict_probabilities(model, X)
-
-        precision, recall, _ = precision_recall_curve(y, probabilities)
-        area = average_precision_score(y, probabilities)
-
-        ax.plot(recall, precision, label=f"{name} (AP = {area:.4f})")
-
-    # Reference line for a model that predicts the base rate for every booking
-    base_rate = float(np.mean(y))
-
-    ax.axhline(
-        base_rate,
-        linestyle="--",
-        color="grey",
-        linewidth=1,
-        label=f"No-skill baseline ({base_rate:.2%})"
-    )
-
-    ax.set_xlabel("Recall (Sensitivity)")
-    ax.set_ylabel("Precision")
-    ax.set_title("Test-Set Precision-Recall Curves")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.legend(loc="upper right", fontsize=9)
 
     plt.tight_layout()
 
