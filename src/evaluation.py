@@ -5,10 +5,8 @@ import matplotlib.pyplot as plt
 
 from sklearn.metrics import (
     accuracy_score,
-    average_precision_score,
     confusion_matrix,
     f1_score,
-    precision_recall_curve,
     precision_score,
     recall_score,
     roc_auc_score,
@@ -18,14 +16,11 @@ from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
 
 
-# Default classification threshold applied to all confusion-matrix diagnostics
+# Default classification threshold 
 DEFAULT_THRESHOLD = 0.50
 
-
-# Threshold-free metrics reported alongside the threshold-based diagnostics
 PROBABILITY_METRICS = [
     "roc_auc",
-    "pr_auc",
 ]
 
 # Metrics that depend on the chosen classification threshold
@@ -49,18 +44,18 @@ def validate_evaluation_inputs(models, X, y):
     # Confirm that the response has not leaked into the predictors
     assert "is_canceled" not in X.columns
 
-    # Confirm that both response classes are present
     assert set(pd.unique(y)) == {0, 1}
 
     for name, model in models.items():
 
-        # Catch result tables or unfitted objects stored by mistake
+        # verify that the model is a fitted classifier with binary classes
         if not hasattr(model, "predict_proba"):
             raise TypeError(
                 f"`{name}` is not a fitted classifier: {type(model).__name__}"
             )
 
         try:
+            # verify that the model has been fitted
             check_is_fitted(model)
         except NotFittedError as error:
             raise NotFittedError(f"{name} has not been fitted.") from error
@@ -69,8 +64,10 @@ def validate_evaluation_inputs(models, X, y):
             raise ValueError(f"{name} must use classes 0 and 1.")
 
 
+
+
 def predict_probabilities(model, X):
-    """Return predicted cancellation probabilities from a fitted pipeline."""
+    """Return predicted cancellation probabilities for each observation in testing set from a fitted pipeline."""
 
     positive_column = list(model.classes_).index(1)
     probabilities = model.predict_proba(X)[:, positive_column]
@@ -102,8 +99,6 @@ def evaluate_model(model, X, y, threshold=DEFAULT_THRESHOLD):
     return {
         # Threshold-free measures of ranking quality
         "roc_auc": roc_auc_score(y, probabilities),
-        # This column reports Average Precision (AP).
-        "pr_auc": average_precision_score(y, probabilities),
 
         # Measures that depend on the chosen threshold
         "accuracy": accuracy_score(y, predictions),
@@ -228,45 +223,6 @@ def plot_roc_curves(models, X, y, figsize=(7, 6)):
 
 
 
-def plot_precision_recall_curves(models, X, y, figsize=(7, 6)):
-    """Plot test-set precision-recall curves for every fitted model."""
-
-    validate_evaluation_inputs(models, X, y)
-
-    figure, ax = plt.subplots(figsize=figsize)
-
-    for name, model in models.items():
-        probabilities = predict_probabilities(model, X)
-
-        precision, recall, _ = precision_recall_curve(y, probabilities)
-        area = average_precision_score(y, probabilities)
-
-        ax.plot(recall, precision, label=f"{name} (AP = {area:.4f})")
-
-    # Reference line for a model that predicts the base rate for every booking
-    base_rate = float(np.mean(y))
-
-    ax.axhline(
-        base_rate,
-        linestyle="--",
-        color="grey",
-        linewidth=1,
-        label=f"No-skill baseline ({base_rate:.2%})"
-    )
-
-    ax.set_xlabel("Recall (Sensitivity)")
-    ax.set_ylabel("Precision")
-    ax.set_title("Test-Set Precision-Recall Curves")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.legend(loc="upper right", fontsize=9)
-
-    plt.tight_layout()
-
-    return ax
-
-
-
 
 def make_confusion_table(model, X, y, threshold=DEFAULT_THRESHOLD):
     """Return a labeled confusion matrix for one fitted model."""
@@ -354,7 +310,7 @@ def get_permutation_importance(
     random_state,
     n_repeats=5,
     n_jobs=1,
-    top_n=20
+    top_n=10
 ):
     """Return permutation importances measured on the original predictors."""
 
@@ -376,6 +332,8 @@ def get_permutation_importance(
         "std_auc_drop": result.importances_std,
     })
 
+    
+
     return (
         importance
         .sort_values("mean_auc_drop", ascending=False)
@@ -386,36 +344,3 @@ def get_permutation_importance(
 
 
 
-def threshold_sweep(model, X, y, thresholds=None):
-    """Describe cutoff trade-offs; select cutoffs using validation data only."""
-
-    validate_evaluation_inputs({"model": model}, X, y)
-
-    if thresholds is None:
-        thresholds = np.round(np.arange(0.20, 0.85, 0.05), 2)
-
-    probabilities = predict_probabilities(model, X)
-
-    rows = []
-
-    for threshold in thresholds:
-        if not 0 <= threshold <= 1:
-            raise ValueError("thresholds must be between 0 and 1.")
-        predictions = (probabilities >= threshold).astype(int)
-
-        true_negatives, false_positives, false_negatives, true_positives = (
-            confusion_matrix(y, predictions, labels=[0, 1]).ravel()
-        )
-
-        rows.append({
-            "threshold": float(threshold),
-            "accuracy": accuracy_score(y, predictions),
-            "sensitivity": recall_score(y, predictions, zero_division=0),
-            "specificity": (
-                true_negatives / (true_negatives + false_positives)
-            ),
-            "precision": precision_score(y, predictions, zero_division=0),
-            "f1": f1_score(y, predictions, zero_division=0),
-        })
-
-    return pd.DataFrame(rows)

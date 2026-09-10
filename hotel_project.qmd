@@ -2280,11 +2280,9 @@ from src.evaluation import (
     evaluate_models,
     compare_cv_and_test,
     plot_roc_curves,
-    plot_precision_recall_curves,
     make_confusion_table,
     get_model_importance,
     get_permutation_importance,
-    threshold_sweep,
 )
 
 CLASSIFICATION_THRESHOLD = 0.50
@@ -2331,14 +2329,6 @@ plot_roc_curves(
 )
 plt.show()
 
-plot_precision_recall_curves(
-    final_models,
-    X_test_fe,
-    y_test
-)
-plt.show()
-
-
 xgboost_confusion = make_confusion_table(
     final_models["XGBoost"],
     X_test_fe,
@@ -2361,15 +2351,24 @@ display(
     .hide(axis="index")
 )
 
-xgboost_permutation = get_permutation_importance(
-    final_models["XGBoost"],
-    X_test_fe,
-    y_test,
-    random_state=RANDOM_STATE,
-    n_repeats=5,
-    n_jobs=1,
-    top_n=15
-)
+permutation_path = MODEL_DIR / "xgboost_permutation.joblib"
+RECOMPUTE_PERMUTATION = False
+
+if RECOMPUTE_PERMUTATION or not permutation_path.exists():
+    xgboost_permutation = get_permutation_importance(
+        final_models["XGBoost"],
+        X_test_fe,
+        y_test,
+        random_state=RANDOM_STATE,
+        n_repeats=5,
+        n_jobs=1,
+        top_n=15
+    )
+
+    dump(xgboost_permutation, permutation_path)
+
+else:
+    xgboost_permutation = load(permutation_path)
 
 display(
     xgboost_permutation
@@ -2377,6 +2376,8 @@ display(
     .format(precision=4)
     .hide(axis="index")
 )
+
+
 ```
 
 Permutation importance identified country, agent, log-transformed lead time, arrival year, market segment, total special requests, and customer type as the most influential original predictors for XGBoost. Shuffling country produced the largest average ROC AUC decrease (0.1330), followed by agent (0.0947) and log-transformed lead time (0.0693). These values indicate predictive usefulness rather than causal effects; the importance of country and agent may partly reflect missingness and booking-channel patterns.
