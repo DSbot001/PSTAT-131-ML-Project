@@ -1705,9 +1705,9 @@ print(f"Iterations used: {best_model.n_iter_[0]}")
 
 The regularized logistic regression pipeline applies median imputation, standardization of numerical predictors and categorical encoding. Five-fold cross-validation searches over `C ∈ {0.01, 0.1, 1, 10, 100, 1000}` and `l1_ratio ∈ {0, 0.2, 0.5, 1}`. Smaller `C` values impose stronger regularization, while `l1_ratio` determines the penalty: 0 gives L2, 1 gives L1, and intermediate values combine both. Since scikit-learn 1.8 deprecates `penalty`, the implementation specifies regularization through `C` and `l1_ratio`, without explicitly setting `penalty="elasticnet"`. 
 
-The selected configuration, `C = 100` and `l1_ratio = 1.0`, corresponds to L1-regularized logistic regression. It achieves a mean validation ROC AUC of **0.8516** (SD **0.0037**), accuracy of **0.8028**, sensitivity of **0.5115**, and specificity of **0.9134**.
+The selected configuration, `C = 100` and `l1_ratio = 1.0`, corresponds to L1-regularized logistic regression. It achieves a mean validation ROC AUC of 0.8516 (SD 0.0037), accuracy of 0.8028, sensitivity of 0.5115, and specificity of 0.9134.
 
-Several configurations at large `C` values produce nearly identical validation AUCs, so the selected L1 configuration offers little practical advantage over nearby alternatives. The fitted estimator stops after **354 of 1,000 permitted iterations**, indicating that it does not reach the iteration limit.
+Several configurations at large `C` values produce nearly identical validation AUCs, so the selected L1 configuration offers little practical advantage over nearby alternatives. The fitted estimator stops after 354 of 1,000 permitted iterations, indicating that it does not reach the iteration limit.
 
 
 
@@ -1780,7 +1780,7 @@ The decision tree search evaluated 48 parameter combinations using five-fold cro
 The selected configuration was:
 `max_depth = None`, `min_samples_leaf = 20`, `ccp_alpha = 0.0001`
 
-Although the maximum depth was not explicitly bounded, the minimum leaf size and positive pruning parameter constrained the fitted tree. The final fitted tree had depth 18 and 156 leaves. Its mean validation ROC AUC was **0.8777**, with a standard deviation of **0.0031**. The mean validation accuracy was **0.8232**, while the mean sensitivity and specificity were **0.6056** and **0.9058**.
+Although the maximum depth was not explicitly bounded, the minimum leaf size and positive pruning parameter constrained the fitted tree. The final fitted tree had depth 18 and 156 leaves. Its mean validation ROC AUC was 0.8777, with a standard deviation of 0.0031. The mean validation accuracy was 0.8232, while the mean sensitivity and specificity were 0.6056 and 0.9058.
 
 This model provided a nonlinear baseline while retaining a relatively interpretable tree structure. The difference between its training and validation AUC was smaller than that of the ensemble models, suggesting less overfitting but also lower predictive performance.
 
@@ -1900,7 +1900,7 @@ The random forest search varied `max_depth`, `min_samples_leaf`, and `max_featur
 The selected configuration was:
 `n_estimators = 300`, `max_depth = 22`, `min_samples_leaf = 5`, `max_features = 0.30`
 
-The selected random forest configuration achieved a mean validation ROC AUC of **0.9000** with a standard deviation of **0.0024**. Its mean validation accuracy was 0.8382, with sensitivity of **0.6275** and specificity of **0.9181**. The training AUC was **0.9630**, producing a train-validation gap of approximately **0.0631**. This gap forcasts some overfitting, although the validation performance was substantially stronger than that of the linear and single-tree models.
+The selected random forest configuration achieved a mean validation ROC AUC of 0.9000 with a standard deviation of 0.0024. Its mean validation accuracy was 0.8382, with sensitivity of 0.6275 and specificity of 0.9181 The training AUC was 0.9630, producing a train-validation gap of approximately 0.0631. This gap forcasts some overfitting, although the validation performance was substantially stronger than that of the linear and single-tree models.
 
 
 ## XG-Boost
@@ -2309,6 +2309,17 @@ display(
 )
 
 
+
+```
+
+At a classification threshold of 0.50, XGBoost and Random Forest achieve the strongest overall test performance. XGBoost has the highest ROC AUC (0.9015), followed closely by Random Forest (0.9011). Their accuracies are also nearly identical, at 0.8389 and 0.8390, respectively. These small differences do not establish a meaningful advantage for either model. Both outperform the Decision Tree, Elastic Net, and Regularized QDA in ROC AUC.
+
+Because 72.48% of test bookings are not canceled, predicting every booking as not canceled would achieve 72.48% accuracy. XGBoost improves on this baseline by approximately 11.41 percentage points. However, its sensitivity of 0.6391 is lower than its specificity of 0.9148, indicating that it identifies non-canceled bookings more successfully than canceled bookings.
+
+Regularized QDA achieves the highest sensitivity (0.8182), but its lower specificity (0.6791) and precision (0.4920) indicate substantially more false cancellation alarms. Its higher recall therefore comes with a trade-off in classification errors.
+
+
+```{python}
 cv_test_comparison = compare_cv_and_test(
     cv_comparison,
     test_results
@@ -2321,7 +2332,12 @@ display(
     .hide(axis="index")
 )
 
+```
 
+The cross-validation and test ROC AUC values are closely aligned for all five models, with absolute differences no larger than 0.0021. The model ranking is also unchanged between cross-validation and testing. These results suggest that the validation performance carries over to the held-out test split. Slightly higher test scores for the ensemble models are consistent with variation between data splits.
+
+
+```{python}
 plot_roc_curves(
     final_models,
     X_test_fe,
@@ -2329,6 +2345,14 @@ plot_roc_curves(
 )
 plt.show()
 
+
+
+```
+
+
+The ROC curves show the trade-off between sensitivity and the false positive rate across classification thresholds. XGBoost and Random Forest have nearly overlapping curves and generally achieve higher sensitivity at a given false positive rate than the other models. All five models perform above the random-classification reference line. These ROC results support the strong discrimination of the ensemble models across thresholds. 
+
+```{python}
 xgboost_confusion = make_confusion_table(
     final_models["XGBoost"],
     X_test_fe,
@@ -2339,6 +2363,16 @@ xgboost_confusion = make_confusion_table(
 display(xgboost_confusion)
 
 
+```
+
+
+
+For a closer examination of classification errors, we present only the confusion matrix for our highest performing model, XGBoost. At the 0.50 threshold, XGBoost correctly classifies 11,567 non-canceled bookings and 3,069 canceled bookings. It incorrectly flags 1,077 non-canceled bookings as cancellations and misses 1,733 actual cancellations.
+
+Among bookings predicted to cancel, 74.02% actually cancel, while the model identifies 63.91% of all actual cancellations. Its F1 score is 0.6860. The remaining missed cancellations show that strong overall discrimination does not guarantee that every cancellation is detected.
+
+
+```{python}
 xgboost_importance = get_model_importance(
     final_models["XGBoost"],
     top_n=20
@@ -2351,6 +2385,20 @@ display(
     .hide(axis="index")
 )
 
+
+
+
+```
+
+XGBoost assigns the largest native feature importance to the interaction between non-refundable deposits and the Offline TA/TO market segment. Other highly ranked features include the Non Refund deposit indicator, the Online TA market segment, and the interaction between non-refundable deposits and group bookings. Several agent indicators and the PRT country indicator also appear among the leading features.
+
+These rankings suggest that deposit conditions and booking channels contribute to the model's predictions. Native importance does not indicate whether a feature increases or decreases cancellation probability; The importance and magnitude columns are identical here because the tree-based importance values are nonnegative.
+
+
+
+
+
+```{python}
 permutation_path = MODEL_DIR / "xgboost_permutation.joblib"
 RECOMPUTE_PERMUTATION = False
 
@@ -2380,5 +2428,8 @@ display(
 
 ```
 
-Permutation importance identified country, agent, log-transformed lead time, arrival year, market segment, total special requests, and customer type as the most influential original predictors for XGBoost. Shuffling country produced the largest average ROC AUC decrease (0.1330), followed by agent (0.0947) and log-transformed lead time (0.0693). These values indicate predictive usefulness rather than causal effects; the importance of country and agent may partly reflect missingness and booking-channel patterns.
+Permutation importance measures the decrease in test ROC AUC when a predictor is randomly shuffled while the fitted model remains unchanged. Country produces the largest average decrease (0.1330), followed by agent (0.0947) and log-transformed lead time (0.0693). Arrival year, market segment, total special requests, and customer type also contribute substantially to predictive performance.
+
+
+
 
