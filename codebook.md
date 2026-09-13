@@ -4,7 +4,7 @@
 
 This codebook describes the original Hotel Booking Demand data and the variables used in the engineered modeling dataset. Each row represents one hotel booking. The response is `is_canceled`, where 1 indicates a canceled booking and 0 indicates a booking that was not canceled.
 
-The raw data contain 119,390 bookings from two Portuguese hotels, with arrivals from 2015â€“2017. Exact duplicate rows are removed before the trainâ€“test split. The final modeling data therefore represent cleaned booking records rather than the original file without preprocessing.
+The raw data contain 119,390 bookings from two Portuguese hotels, with arrivals from 2015 to 2017. Exact duplicate rows are removed before the train test split. After cleaning, 87,227 bookings remain (training 69,781, test 17,446) The final modeling data therefore represent cleaned booking records rather than the original file without preprocessing.
 
 ## Raw variables
 
@@ -14,7 +14,7 @@ The raw data contain 119,390 bookings from two Portuguese hotels, with arrivals 
 | `is_canceled` | Whether the booking was canceled | Binary response | Target variable |
 | `lead_time` | Number of days between booking and arrival | Numeric | Replaced by `log_lead_time` |
 | `arrival_date_year` | Arrival year | Numeric | Included |
-| `arrival_date_month` | Arrival month | Categorical | Used to create cyclical month features |
+| `arrival_date_month` | Arrival month | Categorical | Not included. Used to create cyclical month features |
 | `arrival_date_week_number` | Arrival week number | Numeric | Not selected for the primary model |
 | `arrival_date_day_of_month` | Day of the month of arrival | Numeric | Included |
 | `stays_in_weekend_nights` | Weekend nights booked | Count | Used to calculate stay length and weekend ratio |
@@ -38,7 +38,7 @@ The raw data contain 119,390 bookings from two Portuguese hotels, with arrivals 
 | `days_in_waiting_list` | Days the booking remained on a waiting list | Count | Excluded from the primary model |
 | `customer_type` | Customer category | Categorical | Included |
 | `adr` | Average daily rate | Numeric | Replaced by cleaned `adr_adj` |
-| `required_car_parking_spaces` | Number of parking spaces requested | Count | Reserved for sensitivity analysis; excluded from the primary model |
+| `required_car_parking_spaces` | Number of parking spaces requested | Count | excluded from the primary model |
 | `total_of_special_requests` | Number of special requests | Count | Included; also used to create `has_special_request` |
 | `reservation_status` | Final reservation status | Categorical | Removed as response leakage |
 | `reservation_status_date` | Date of the final reservation status | Date | Removed as response leakage |
@@ -48,7 +48,7 @@ The raw data contain 119,390 bookings from two Portuguese hotels, with arrivals 
 | Variable | Definition or purpose | Primary model use |
 |---|---|---|
 | `log_lead_time` | `log1p(lead_time)`; reduces the right skew in lead time | Included |
-| `arrival_month_num` | Numeric month index from 1 to 12 | Used to construct cyclical features; not included directly |
+| `arrival_month_num` | Numeric month index from 1 to 12 | Used to construct cyclical features; not included  |
 | `arrival_month_sin` | Sine transformation of the month angle | Included |
 | `arrival_month_cos` | Cosine transformation of the month angle | Included |
 | `total_nights_adj` | Adjusted total stay length; questionable zero-night records remain missing | Included |
@@ -61,40 +61,11 @@ The raw data contain 119,390 bookings from two Portuguese hotels, with arrivals 
 | `is_family_booking` | Indicates at least one child or baby; missing status is preserved when the counts are unknown | Included |
 | `non_refund_groups` | Indicator for a non-refundable deposit and the Groups market segment | Included |
 | `non_refund_offline_ta_to` | Indicator for a non-refundable deposit and the Offline TA/TO segment | Included |
-| `has_booking_change` | Indicator for at least one booking change | Sensitivity analysis only; excluded from the primary model |
-| `has_parking_request` | Indicator for at least one parking-space request | Sensitivity analysis only; excluded from the primary model |
+| `has_booking_change` | Indicator for at least one booking change | excluded from the primary model |
+| `has_parking_request` | Indicator for at least one parking-space request | excluded from the primary model |
 
-## Primary modeling feature set
 
-The primary design matrix contains 31 predictors divided into four preprocessing groups:
 
-### Numeric and count predictors
-
-`log_lead_time`, `arrival_date_year`, `arrival_date_day_of_month`, `arrival_month_sin`, `arrival_month_cos`, `total_nights_adj`, `weekend_night_ratio`, `adults`, `children`, `babies`, `previous_cancellations`, `previous_bookings_not_canceled`, `adr_adj`, and `total_of_special_requests`.
-
-### Binary predictors
-
-`is_repeated_guest`, `has_company`, `has_prior_non_canceled_booking`, `has_special_request`, `is_family_booking`, `non_refund_groups`, and `non_refund_offline_ta_to`.
-
-### Ordinary categorical predictors
-
-`hotel`, `meal`, `market_segment`, `distribution_channel`, `reserved_room_type`, `deposit_type`, `customer_type`, and `previous_cancellations_bucket`.
-
-### High-cardinality categorical predictors
-
-`agent` and `country`. Missing values are handled explicitly, and infrequent levels are pooled during preprocessing.
-
-## Preprocessing and evaluation notes
-
-- Numeric variables are median-imputed; scale-sensitive models additionally standardize them.
-- Binary variables are imputed using the most frequent training-fold value.
-- Ordinary categorical variables use most-frequent imputation and one-hot encoding.
-- `agent` and `country` use one-hot encoding with rare-level pooling and unknown-level handling.
-- Preprocessing is fitted within each training fold to avoid using information from validation or test data.
-- `reservation_status` and `reservation_status_date` are excluded because they describe the outcome or information recorded after the booking decision.
-- Native tree importance describes model reliance on a feature, not the direction or causality of its relationship with cancellation.
-- Permutation importance is reported as the decrease in test ROC AUC after shuffling one predictor while keeping the fitted model fixed.
-- Confusion-matrix metrics use a probability threshold of 0.50 unless otherwise stated.
 
 ## Evaluation metrics
 
@@ -106,5 +77,5 @@ The primary design matrix contains 31 predictors divided into four preprocessing
 | Specificity | Proportion of non-canceled bookings correctly identified |
 | Precision | Proportion of predicted cancellations that are actual cancellations |
 | F1 score | Harmonic mean of precision and sensitivity |
-| Trainâ€“validation AUC gap | Training AUC minus mean validation AUC |
-| CVâ€“test AUC gap | Mean cross-validation AUC minus test-set AUC |
+| Train validation AUC gap | Training AUC minus mean validation AUC |
+| CV test AUC gap | Mean cross-validation AUC minus test-set AUC |
