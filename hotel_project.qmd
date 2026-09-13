@@ -501,7 +501,7 @@ hotel_clean.loc[hotel_clean["adr_adj"] > 1000, "adr_adj"] = np.nan
 ```
 
 
-ADR had a median of 99 and a 99.9th percentile of 335. Most high values remained below 510, but one booking recorded an ADR of 5,400, making it a clear outlier from the rest of the distribution. The booking was retained, while its ADR was set to missing in adr_adj for later imputation.
+ADR had a median of 98.10 and a 99.9th percentile of 335. Most high values remained below 510, but one booking recorded an ADR of 5,400, making it a clear outlier from the rest of the distribution. The booking was retained, while its ADR was set to missing in adr_adj for later imputation.
 
 
 #### Large Adult Counts
@@ -1159,7 +1159,7 @@ plt.show()
 ```
 
 
-Canceled bookings had higher adjusted ADRs, with a median of 103.65 and a mean of $117.57, compared with $95.00 and $103.04 for non-canceled bookings. Although the distributions overlapped substantially, this upward shift suggests that `adr_adj` may provide useful predictive information. The summary statistics and boxplot use non-missing values of adr_adj. Outlier markers are hidden for readability, without excluding additional values from the calculations.
+Canceled bookings had higher adjusted ADRs, with a median of 109.65 and a mean of 117.57, compared with 95.00 and 103.04 for non-canceled bookings. Although the distributions overlapped substantially, this upward shift suggests that `adr_adj` may provide useful predictive information. The summary statistics and boxplot use non-missing values of adr_adj. Outlier markers are hidden for readability, without excluding additional values from the calculations.
 
 
 
@@ -1435,7 +1435,7 @@ The bivariate and stratified analyses reveal several patterns that will guide fe
 
 - The most surprising pattern was found in `previous_cancellations`: bookings with exactly one previous cancellation have a 76.49% cancellation rate, compared with 26.72% for those with two or more. This reversal is partly explained by the much larger proportion of prior non-canceled bookings in the latter group, so both history variables should be interpreted jointly.
 
-- Numerical predictors show limited redundancy overall. The main exception is `is_repeated_guest` and `previous_bookings_not_canceled` (ρ = 0.80), which will be reassessed during modeling rather than removed immediately.
+- Numerical predictors show limited redundancy overall. The main exception is `is_repeated_guest` and `previous_bookings_not_canceled` (ρ = 0.80). Both variables are retained in the primary model because the modeling pipeline evaluates their joint predictive contribution.
 
 - Cancellations make up approximately 27% of the response. We will preserve this moderately imbalanced distribution through stratified resampling and evaluate performance with ROC AUC and confusion-matrix metrics rather than relying on accuracy alone.
 
@@ -2436,6 +2436,6 @@ Permutation importance measures the decrease in test ROC AUC when a predictor is
 This analysis compared five models for predicting hotel booking cancellations at the time of reservation. After removing 31,994 exact duplicates (26.8%), dropping the post-outcome variables `reservation_status` and `reservation_status_date`, and excluding 169 implausible guest records, 87,227 bookings remained with a cancellation rate of approximately 27.5%. Suspicious but potentially valid values were preserved through adjusted variables and imputed within the pipeline rather than discarded.
 
 
-The two ensemble methods clearly performed best. XGBoost (0.9015) and the random forest (0.9011) led the pruned decision tree (0.8777), elastic net (0.8516), and regularized QDA (0.8267) in ROC AUC by substantial margins. The ensemble models also achieved the highest mean validation accuracy and balanced sensitivity-specificity profiles at the default classification threshold of 0.50. The XGBoost model was selected for further evaluation because it achieved the highest mean cross-validation ROC AUC and test ROC AUC among the five models.
+The two ensemble methods clearly performed best. XGBoost (0.9015) and the random forest (0.9011) led the pruned decision tree (0.8773), elastic net (0.8500), and regularized QDA (0.8246) in ROC AUC by substantial margins. The ensemble models also achieved the highest mean validation accuracy and balanced sensitivity-specificity profiles at the default classification threshold of 0.50. The XGBoost model was selected for further evaluation because it achieved the highest mean cross-validation ROC AUC and test ROC AUC among the five models.
 
-Two limitations should be considered when interpreting these results. First, the random train–test split evaluates performance within the observed data distribution and may not generalize to future bookings. A chronological holdout would provide a more realistic assessment of deployment performance. Second, predicted class labels are based on a fixed probability threshold of 0.50. Because the operational costs of missed cancellations and false alarms may differ, threshold-dependent metrics may not reflect the hotel's preferred decision trade-off. 
+A couple of limitations should be considered when interpreting these results. First, the random train–test split evaluates performance within the observed data distribution and may not generalize to future bookings. A chronological holdout would provide a more realistic assessment of deployment performance. Second, predicted class labels are based on a fixed probability threshold of 0.50. Because the operational costs of missed cancellations and false alarms may differ, threshold-dependent metrics may not reflect the hotel's preferred decision trade-off. Third, removing 31,994 exact duplicates (26.8% of raw data set) assumes that identical rows are repeated records. Although this reduces the risk of duplicate observations appearing across the train–test split, the assumption cannot be verified from the available data.

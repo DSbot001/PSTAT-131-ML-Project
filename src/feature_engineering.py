@@ -18,7 +18,7 @@ POST_BOOKING_COLUMNS = [
 ]
 
 
-# Variables retained for sensitivity analysis but unavailable at booking time
+# Variables unavailable at booking time
 SEPARATION_SUSPECT_COLUMNS = [
     "required_car_parking_spaces", # Original parking-space request count
     "has_parking_request",         # Binary indicator of any parking-space request 
@@ -162,14 +162,11 @@ def engineer_features(df):
 
 
 
-    # Create a post-booking indicator for later prediction-time sensitivity analysis
-    data["has_booking_change"] = (
-        data["booking_changes"] > 0
-    ).astype("int8")
+    data["has_booking_change"] = (data["booking_changes"] > 0).astype("int8")
 
 
 
-    # Create a parking indicator for complete-separation sensitivity analysis
+    # Create a parking indicator
     data["has_parking_request"] = (data["required_car_parking_spaces"] > 0).astype("int8")
 
 
