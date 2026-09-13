@@ -1900,8 +1900,7 @@ The random forest search varied `max_depth`, `min_samples_leaf`, and `max_featur
 The selected configuration was:
 `n_estimators = 300`, `max_depth = 22`, `min_samples_leaf = 5`, `max_features = 0.30`
 
-The selected random forest configuration achieved a mean validation ROC AUC of 0.9000 with a standard deviation of 0.0024. Its mean validation accuracy was 0.8382, with sensitivity of 0.6275 and specificity of 0.9181 The training AUC was 0.9630, producing a train-validation gap of approximately 0.0631. This gap forcasts some overfitting, although the validation performance was substantially stronger than that of the linear and single-tree models.
-
+The selected random forest configuration achieved a mean validation ROC AUC of 0.9000 with SD of 0.0024. Its mean validation accuracy was 0.8382, with sensitivity of 0.6275 and specificity of 0.9181. The mean training-fold AUC is 0.9630, producing a training–validation gap of approximately 0.0631. This gap suggests some overfitting, though the validation performance remains substantially stronger than Elastic Net and single-tree models.
 
 ## XG-Boost
 
@@ -2071,20 +2070,17 @@ selected_xgboost_result = (
 ```
 
 
-The XGBoost search varied six parameters: `n_estimators`, `max_depth`, `learning_rate`, `min_child_weight`, `subsample`, and `colsample_bytree`.
+The XGBoost search varies five parameters: `n_estimators`, `max_depth`, `learning_rate`, `min_child_weight`, and `colsample_bytree`. The row-sampling fraction, `subsample`, is fixed at 0.80 throughout the search.
 
 `n_estimators` controls the number of boosting rounds, while `learning_rate` controls the contribution of each individual tree. `max_depth` and `min_child_weight` regulate the complexity of the individual trees and the minimum amount of information required for additional splitting. `subsample` controls the fraction of training observations used for each boosting round, and `colsample_bytree` controls the fraction of predictors used by each tree.
 
 The selected XGBoost configuration was:
-
 `n_estimators = 800`, `max_depth = 7`, `learning_rate = 0.03`, 
 `min_child_weight = 3`, `subsample = 0.80`, `colsample_bytree = 0.70`,
 
 This configuration used a relatively large number of shallow-to-moderate-depth trees with a small learning rate. Row and column subsampling added regularization and reduced dependence among individual trees.
 
-The selected configuration achieved a mean validation ROC AUC of 0.9010 with a standard deviation of 0.0026. Its mean validation accuracy was 0.8382, sensitivity was 0.6346, and specificity was 0.9156. The training AUC was 0.9361, giving a train-validation gap of approximately 0.0351.
-
-The selected configuration was a practical trade-off between validation discrimination and the degree of overfitting, rather than selecting solely on the highest fourth-decimal-place AUC.
+The selected configuration achieved a mean validation ROC AUC of 0.9010 with a standard deviation of 0.0026. Its mean validation accuracy was 0.8382, sensitivity was 0.6346, and specificity was 0.9156. The training AUC was 0.9361, giving a train-validation gap of approximately 0.0351. 
 
 ## QDA
 
@@ -2260,7 +2256,7 @@ final_models = {
 
 ```
 
-XGBoost had the highest validation ROC AUC among the selected configurations, followed closely by the random forest. The stronger performance of these ensemble models suggests that hotel cancellations involve nonlinear relationships and interactions among booking characteristics that are not fully captured by a regularized linear model. They also produced the strongest overall accuracy and balanced sensitivity-specificity profiles at the default classification threshold of 0.50. The final models were then locked before evaluating them once on the held-out test set.
+XGBoost had the highest validation ROC AUC among the selected configurations, followed closely by the random forest. The stronger performance of these ensemble models suggests that hotel cancellations involve nonlinear relationships and interactions among booking characteristics that are not fully captured by a regularized linear model. They also achieved the higher mean validation accuracy and balanced sensitivity-specificity profiles at the default classification threshold of 0.50. The final models were then locked before evaluating them once on the held-out test set.
 
 
 
@@ -2352,6 +2348,10 @@ plt.show()
 
 The ROC curves show the trade-off between sensitivity and the false positive rate across classification thresholds. XGBoost and Random Forest have nearly overlapping curves and generally achieve higher sensitivity at a given false positive rate than the other models. All five models perform above the random-classification reference line. These ROC results support the strong discrimination of the ensemble models across thresholds. 
 
+
+
+The following three sections focus on XGBoost, which achieves the highest mean cross-validation ROC AUC and test ROC AUC among the five models. We examine its confusion matrix, native feature importance, and permutation importance to describe its classification errors and the predictors that contribute to its performance.
+
 ```{python}
 xgboost_confusion = make_confusion_table(
     final_models["XGBoost"],
@@ -2367,7 +2367,7 @@ display(xgboost_confusion)
 
 
 
-For a closer examination of classification errors, we present only the confusion matrix for our highest performing model, XGBoost. At the 0.50 threshold, XGBoost correctly classifies 11,567 non-canceled bookings and 3,069 canceled bookings. It incorrectly flags 1,077 non-canceled bookings as cancellations and misses 1,733 actual cancellations.
+At the 0.50 threshold, XGBoost correctly classifies 11,567 non-canceled bookings and 3,069 canceled bookings. It incorrectly flags 1,077 non-canceled bookings as cancellations and misses 1,733 actual cancellations.
 
 Among bookings predicted to cancel, 74.02% actually cancel, while the model identifies 63.91% of all actual cancellations. Its F1 score is 0.6860. The remaining missed cancellations show that strong overall discrimination does not guarantee that every cancellation is detected.
 
@@ -2390,9 +2390,7 @@ display(
 
 ```
 
-XGBoost assigns the largest native feature importance to the interaction between non-refundable deposits and the Offline TA/TO market segment. Other highly ranked features include the Non Refund deposit indicator, the Online TA market segment, and the interaction between non-refundable deposits and group bookings. Several agent indicators and the PRT country indicator also appear among the leading features.
-
-These rankings suggest that deposit conditions and booking channels contribute to the model's predictions. Native importance does not indicate whether a feature increases or decreases cancellation probability; The importance and magnitude columns are identical here because the tree-based importance values are nonnegative.
+XGBoost assigns the largest native feature importance to the interaction between non-refundable deposits and the Offline TA/TO market segment. Other highly ranked features include the Non Refund deposit indicator, the Online TA market segment, and the interaction between non-refundable deposits and group bookings. Several agent indicators and the PRT country indicator also appear among the leading features. These rankings suggest that deposit conditions and booking channels contribute to the model's predictions. The importance and magnitude columns are identical here because the tree-based importance values are nonnegative.
 
 
 
@@ -2433,3 +2431,11 @@ Permutation importance measures the decrease in test ROC AUC when a predictor is
 
 
 
+# Conclusion
+
+This analysis compared five models for predicting hotel booking cancellations at the time of reservation. After removing 31,994 exact duplicates (26.8%), dropping the post-outcome variables `reservation_status` and `reservation_status_date`, and excluding 169 implausible guest records, 87,227 bookings remained with a cancellation rate of approximately 27.5%. Suspicious but potentially valid values were preserved through adjusted variables and imputed within the pipeline rather than discarded.
+
+
+The two ensemble methods clearly performed best. XGBoost (0.9015) and the random forest (0.9011) led the pruned decision tree (0.8777), elastic net (0.8516), and regularized QDA (0.8267) in ROC AUC by substantial margins. The ensemble models also achieved the highest mean validation accuracy and balanced sensitivity-specificity profiles at the default classification threshold of 0.50. The XGBoost model was selected for further evaluation because it achieved the highest mean cross-validation ROC AUC and test ROC AUC among the five models.
+
+Two limitations should be considered when interpreting these results. First, the random train–test split evaluates performance within the observed data distribution and may not generalize to future bookings. A chronological holdout would provide a more realistic assessment of deployment performance. Second, predicted class labels are based on a fixed probability threshold of 0.50. Because the operational costs of missed cancellations and false alarms may differ, threshold-dependent metrics may not reflect the hotel's preferred decision trade-off. 
