@@ -15,7 +15,7 @@ jupyter: python3
 
 This project uses the Hotel Booking Demand dataset to predict whether a hotel booking will be canceled. The main research question is:
 
-> Can booking characteristics and customer history predict hotel booking cancellations?
+> Can booking time characteristics and customer history predict hotel booking cancellations?
 
 The analysis combines exploratory data analysis, feature engineering, cross-validation, and several classification models. Model performance is evaluated using ROC AUC together with accuracy, sensitivity, specificity, precision, and the F1 score.
 
